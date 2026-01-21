@@ -1,0 +1,21 @@
+{
+    "name": "Vaderjs-Native",
+    "version": "2.3.5",
+    "description": "Build Android Applications using Vaderjs framework.",
+    "bin": {
+        "vaderjs": "./main.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Postr-Inc/Vaderjs-Native"
+    },
+    "license": "MIT",
+    "dependencies": {
+        "@tailwindcss/postcss": "^4.1.18",
+        "ansi-colors": "latest",
+        "autoprefixer": "^10.4.23",
+        "postcss-cli": "^11.0.1",
+        "tailwindcss": "4",
+        "vaderjs": "^2.3.5"
+    }
+}
