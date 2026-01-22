@@ -72,7 +72,7 @@ export async function init() {
 
     // Create example app/index.jsx with counter
     const counterCode = wantsTailwind
-        ? `import * as Vader from "vaderjs";
+        ? `import * as Vader from "vaderjs-native";
 
 function Counter() {
  let [count, setCount] = Vader.useState(0);
@@ -92,7 +92,7 @@ function Counter() {
   
 Vader.render(Vader.createElement(Counter, null), document.getElementById("app"));
 `
-        : `import * as Vader from "vaderjs";
+        : `import * as Vader from "vaderjs-native";
 
 function Counter() {
   let [count, setCount] = Vader.useState(0);
@@ -154,12 +154,42 @@ Vader.render(Vader.createElement(Counter, null), document.getElementById("app"))
     }
 
     // Create vaderjs.config.ts regardless, add Tailwind plugin if needed
-    const vaderConfig = `import defineConfig from "vaderjs/config";
-${wantsTailwind ? 'import tailwind from "vaderjs/plugins/tailwind";' : ''}
-  
+    const vaderConfig = ` 
+import defineConfig from "vaderjs-native/config";
+import tailwind from "vaderjs-native/plugins/tailwind";    
 export default defineConfig({
-  port: 3000,
-  plugins: [${wantsTailwind ? "tailwind" : ""}],
+  app: {
+    name: "ExampleVaderApp",
+    id: "com.example.vaderapp",
+    version: {
+      code: 1,
+      name: "1.0.0",
+    },
+  },
+
+  platforms: {
+    android: {
+      minSdk: 24,
+      targetSdk: 34,
+      permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+      ],
+      icon: "./assets/android/icon.png",
+      splash: "./assets/android/splash.png",
+    },
+
+    web: {
+      title:  "VaderJS App",
+      themeColor: "#111827",
+    },
+
+    // future
+    ios: {},
+    windows: {},
+  },
+
+  plugins: [tailwind]
 });`;
 
     await fs.writeFile(path.join(projectDir, "vaderjs.config.ts"), vaderConfig);
@@ -185,9 +215,11 @@ export default defineConfig({
             name: path.basename(projectDir),
             version: "1.0.0",
             scripts: {
-                start: "bun run vaderjs build && bun run vaderjs serve",
-                build: "bun run vaderjs build",
+                "android:dev": "bun run vaderjs android:dev",
+                "android:build": "bun run vaderjs android:build",
                 dev: "bun run vaderjs dev",
+                build: "bun run vaderjs build",
+                serve: "bun run vaderjs serve",
             },
             dependencies: {
                 vaderjs: "latest",

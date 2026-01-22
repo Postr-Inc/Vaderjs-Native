@@ -39,8 +39,8 @@ export default {
         }else{
            initTailwind()
            console.log('Building TailwindCSS...')
-           await vader.runCommand(['bun', 'run', 'postcss', './public/styles.css', '-o', 'dist/public/tailwind.css']) 
-           vader.injectHTML(`<link rel="stylesheet" href="/public/tailwind.css">`) 
+           await vader.runCommand(['bun', 'run', 'postcss', './public/styles.css', '-o', './public/tailwind_styles.css'])
+          vader.injectHTML(`<link rel="stylesheet" href="./tailwind_styles.css">`) 
 
         }  
         
@@ -50,4 +50,4 @@ export default {
         console.log('TailwindCSS plugin finished building')
     },
 
-}
+} as VaderPlugin;

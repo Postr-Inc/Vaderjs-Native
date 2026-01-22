@@ -1,11 +1,43 @@
-/**
- * @file A lightweight React-like library with hooks implementation.
- * @module vader
- */
+;(window as any).onNativeDialogResult = function (confirmed: boolean) {
+  if (dialogResolver) {
+    dialogResolver(confirmed);
+    dialogResolver = null;
+  }
+};
 
 /**
- * Global variables for the fiber tree and rendering process.
+ * Called by Android
  */
+;(window as any).onNativePermissionResult = function (granted: boolean) {
+  if (permissionResolver) {
+    permissionResolver(granted);
+    permissionResolver = null;
+  }
+};
+const ANDROID_KEY_MAP: Record<number, string> = {
+  19: "ArrowUp",    // DPAD_UP
+  20: "ArrowDown",  // DPAD_DOWN
+  21: "ArrowLeft",  // DPAD_LEFT
+  22: "ArrowRight", // DPAD_RIGHT
+  23: "Enter",      // DPAD_CENTER
+  4: "Back",        // BACK
+};
+// Already have this: 
+// New: Android bridge
+// @ts-ignore
+window.onNativeKey = function(keyCode: number) {
+  const key = ANDROID_KEY_MAP[keyCode];
+  if (!key) return;
+   // add debug element to show key presses
+   const debugElement = document.getElementById("debug-keypress");
+   if (debugElement) {
+     debugElement.textContent = `Key pressed: ${key}`;
+   }
+
+  // Create a fake KeyboardEvent so FocusManager can handle it
+  const event = new KeyboardEvent("keydown", { key });
+  document.dispatchEvent(event);
+};
 let nextUnitOfWork: Fiber | null = null;
 let wipRoot: Fiber | null = null;
 let currentRoot: Fiber | null = null;
@@ -13,7 +45,353 @@ let deletions: Fiber[] | null = null;
 let wipFiber: Fiber | null = null;
 let hookIndex = 0;
 let isRenderScheduled = false;
-// Add to the top of your Vader.js file
+ /**
+ * FocusManager - Handles D-pad navigation and focus management
+ */
+class FocusManager {
+  constructor() {
+    this.focusableSelectors = [
+      'button',
+      'a[href]',
+      'input',
+      'select',
+      'textarea',
+      '[tabindex]',
+      '[role="button"]',
+      '[role="menuitem"]',
+      '[role="tab"]',
+      '[role="option"]',
+      '[contenteditable="true"]'
+    ];
+    this.currentFocusIndex = -1;
+    this.focusableElements = [];
+    this.isEnabled = true;
+    this.debug = false;
+    
+    this.init();
+  }
+
+  init() {
+    // Listen for the keyboard events dispatched by onNativeKey
+    document.addEventListener('keydown', this.handleKeyDown.bind(this));
+    
+    // Update focusable elements when DOM changes
+    this.observeDOMChanges();
+    
+    // Initial focusable elements scan
+    this.updateFocusableElements();
+    
+    // Try to focus first element by default
+    setTimeout(() => {
+      if (this.focusableElements.length > 0) {
+        this.setFocusIndex(0);
+      }
+    }, 100);
+    
+    // Debug visualization
+    if (this.debug) {
+      this.addDebugStyles();
+    }
+  }
+
+  handleKeyDown(event) {
+    if (!this.isEnabled) return;
+    
+    const key = event.key;
+    
+    switch(key) {
+      case 'ArrowUp':
+        event.preventDefault();
+        this.navigate(-1, 'vertical');
+        break;
+      case 'ArrowDown':
+        event.preventDefault();
+        this.navigate(1, 'vertical');
+        break;
+      case 'ArrowLeft':
+        event.preventDefault();
+        this.navigate(-1, 'horizontal');
+        break;
+      case 'ArrowRight':
+        event.preventDefault();
+        this.navigate(1, 'horizontal');
+        break;
+      case 'Enter':
+        event.preventDefault();
+        this.activateCurrentElement();
+        break;
+      case 'Back':
+        event.preventDefault();
+        this.handleBackButton();
+        break;
+    }
+  }
+
+  updateFocusableElements() {
+    const allElements = Array.from(document.querySelectorAll(this.focusableSelectors.join(',')));
+    
+    // Filter elements that are visible and not disabled
+    this.focusableElements = allElements.filter(el => {
+      const style = window.getComputedStyle(el);
+      const isVisible = style.display !== 'none' && 
+                       style.visibility !== 'hidden' && 
+                       style.opacity !== '0';
+      const isEnabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+      const hasTabIndex = el.tabIndex !== -1 || el.hasAttribute('tabindex');
+      
+      return isVisible && isEnabled && (hasTabIndex || this.isFocusableByDefault(el));
+    });
+    
+    // Sort by visual position (top-to-bottom, left-to-right)
+    this.focusableElements.sort((a, b) => {
+      const rectA = a.getBoundingClientRect();
+      const rectB = b.getBoundingClientRect();
+      
+      if (Math.abs(rectA.top - rectB.top) < 10) {
+        return rectA.left - rectB.left;
+      }
+      return rectA.top - rectB.top;
+    });
+    
+    // Update current focus index if current element still exists
+    if (this.currentFocusIndex >= 0) {
+      const currentElement = this.getCurrentElement();
+      if (currentElement) {
+        this.currentFocusIndex = this.focusableElements.indexOf(currentElement);
+      }
+    }
+    
+    if (this.currentFocusIndex === -1 && this.focusableElements.length > 0) {
+      this.currentFocusIndex = 0;
+    }
+    
+    if (this.debug) {
+      this.highlightFocusableElements();
+    }
+  }
+
+  isFocusableByDefault(element) {
+    return ['button', 'a[href]', 'input', 'select', 'textarea'].some(selector => 
+      element.matches(selector)
+    );
+  }
+
+  navigate(direction, orientation) {
+    if (this.focusableElements.length === 0) return;
+    
+    const currentElement = this.getCurrentElement();
+    if (!currentElement && this.focusableElements.length > 0) {
+      this.setFocusIndex(0);
+      return;
+    }
+    
+    const currentIndex = this.focusableElements.indexOf(currentElement);
+    const currentRect = currentElement.getBoundingClientRect();
+    
+    let bestCandidate = null;
+    let bestScore = Infinity;
+    
+    this.focusableElements.forEach((element, index) => {
+      if (index === currentIndex) return;
+      
+      const rect = element.getBoundingClientRect();
+      let score = 0;
+      
+      if (orientation === 'vertical') {
+        const verticalDistance = direction > 0 ? 
+          rect.top - currentRect.bottom : 
+          currentRect.top - rect.bottom;
+        
+        const horizontalDistance = Math.abs((rect.left + rect.right) / 2 - 
+                                          (currentRect.left + currentRect.right) / 2);
+        
+        if (verticalDistance < 0) return; // Wrong direction
+        
+        // Prioritize elements directly below/above, then consider horizontal alignment
+        score = verticalDistance + horizontalDistance * 0.3;
+      } else { // horizontal
+        const horizontalDistance = direction > 0 ? 
+          rect.left - currentRect.right : 
+          currentRect.left - rect.right;
+        
+        const verticalDistance = Math.abs((rect.top + rect.bottom) / 2 - 
+                                        (currentRect.top + currentRect.bottom) / 2);
+        
+        if (horizontalDistance < 0) return; // Wrong direction
+        
+        // Prioritize elements directly right/left, then consider vertical alignment
+        score = horizontalDistance + verticalDistance * 0.3;
+      }
+      
+      if (score < bestScore) {
+        bestScore = score;
+        bestCandidate = index;
+      }
+    });
+    
+    // If no candidate found in primary direction, try opposite direction
+    if (bestCandidate === null && this.focusableElements.length > 1) {
+      const nextIndex = (currentIndex + direction + this.focusableElements.length) % 
+                       this.focusableElements.length;
+      bestCandidate = nextIndex;
+    }
+    
+    if (bestCandidate !== null) {
+      this.setFocusIndex(bestCandidate);
+    }
+  }
+
+  setFocusIndex(index) {
+    if (index < 0 || index >= this.focusableElements.length) return;
+    
+    this.currentFocusIndex = index;
+    const element = this.focusableElements[index];
+    
+    // Remove focus from all elements
+    this.focusableElements.forEach(el => {
+      el.classList.remove('focused', 'dpad-focused');
+      el.removeAttribute('data-focused');
+    });
+    
+    // Add focus to current element
+    element.classList.add('focused', 'dpad-focused');
+    element.setAttribute('data-focused', 'true');
+    element.focus();
+    
+    // Scroll into view if needed
+    element.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'center'
+    });
+    
+    // Dispatch custom event
+    element.dispatchEvent(new CustomEvent('dpadfocus', {
+      bubbles: true,
+      detail: { element, index }
+    }));
+    
+    if (this.debug) {
+      console.log('Focused element:', element, 'Index:', index);
+    }
+  }
+
+  getCurrentElement() {
+    return this.focusableElements[this.currentFocusIndex];
+  }
+
+  activateCurrentElement() {
+    const element = this.getCurrentElement();
+    if (!element) return;
+    
+    // Trigger appropriate action based on element type
+    if (element.tagName === 'A' || element.tagName === 'BUTTON') {
+      element.click();
+    } else if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+      // Already focused, just ensure it's active
+      element.focus();
+    } else {
+      // Generic click for other focusable elements
+      element.click();
+    }
+  }
+
+  handleBackButton() {
+    // Dispatch global back event
+    document.dispatchEvent(new CustomEvent('dpadback', {
+      bubbles: true
+    }));
+    
+    // Or go back in history
+    if (window.history.length > 1) {
+      window.history.back();
+    }
+  }
+
+  observeDOMChanges() {
+    // Use MutationObserver to update focusable elements when DOM changes
+    const observer = new MutationObserver(() => {
+      this.updateFocusableElements();
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden', 'disabled', 'tabindex']
+    });
+    
+    // Also update on resize and scroll
+    window.addEventListener('resize', () => this.updateFocusableElements());
+    window.addEventListener('scroll', () => this.updateFocusableElements());
+  }
+
+  // Debug methods
+  addDebugStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+      .dpad-focused {
+        outline: 3px solid #4CAF50 !important;
+        outline-offset: 2px !important;
+        box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.3) !important;
+        transition: outline 0.2s ease;
+      }
+      
+      .focus-highlight {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px;
+        border-radius: 5px;
+        font-family: monospace;
+        z-index: 9999;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  highlightFocusableElements() {
+    // Remove existing highlights
+    document.querySelectorAll('.focus-highlight').forEach(el => el.remove());
+    
+    // Add highlight element
+    const highlight = document.createElement('div');
+    highlight.className = 'focus-highlight';
+    highlight.textContent = `Focusable: ${this.focusableElements.length} | Current: ${this.currentFocusIndex}`;
+    document.body.appendChild(highlight);
+  }
+
+  // Public API
+  enable() {
+    this.isEnabled = true;
+  }
+
+  disable() {
+    this.isEnabled = false;
+  }
+
+  focusFirst() {
+    if (this.focusableElements.length > 0) {
+      this.setFocusIndex(0);
+    }
+  }
+
+  focusLast() {
+    if (this.focusableElements.length > 0) {
+      this.setFocusIndex(this.focusableElements.length - 1);
+    }
+  }
+
+  focusElement(element) {
+    const index = this.focusableElements.indexOf(element);
+    if (index !== -1) {
+      this.setFocusIndex(index);
+    }
+  }
+}
+
  
  
 interface Fiber {
@@ -93,14 +471,17 @@ function createDom(fiber: Fiber): Node {
   let dom: Node;
 
   if (fiber.type === "TEXT_ELEMENT") {
-    dom = document.createTextNode("");
+    dom = document.createTextNode(fiber.props.nodeValue ?? "");
   } else {
-    const isSvg = isSvgElement(fiber); 
-    if (isSvg) {
-      dom = document.createElementNS("http://www.w3.org/2000/svg", fiber.type as string);
-    } else {
-      dom = document.createElement(fiber.type as string);
-    }
+    const isSvg = isSvgElement(fiber);
+    dom = isSvg
+      ? document.createElementNS("http://www.w3.org/2000/svg", fiber.type as string)
+      : document.createElement(fiber.type as string);
+  }
+
+  // Assign ref if it exists
+  if (fiber.props.ref) {
+    fiber.props.ref.current = dom;
   }
 
   updateDom(dom, {}, fiber.props);
@@ -604,15 +985,334 @@ export function  Show({ when, children }: { when: boolean, children: VNode[] }):
    //@ts-ignore
   return when ? children : null;
 }
-export function showToast  (message: string, duration = 3000)   {
-  //@ts-ignore
-  if (window.Android && typeof window.Android.showToast === "function") {
-     //@ts-ignore
-    window.Android.showToast(message, duration);
-  } else {
-    console.log(`[showToast] ${message}`);
+/**
+ * @description Show toast allows you to invoke system level toast api to show data to user
+ * @param message 
+ * @param duration 
+ */
+export function showToast(message: string, duration = 3000) {
+  if (typeof window !== "undefined" && (window as any).Android?.showToast) {
+    console.log("[Vader] Android Toast");
+    (window as any).Android.showToast(message);
+    return;
   }
+
+  // Web fallback
+  console.log("[Toast]", message);
+
+  const toast = document.createElement("div");
+  toast.textContent = message;
+  Object.assign(toast.style, {
+    position: "fixed",
+    bottom: "24px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(0,0,0,0.85)",
+    color: "white",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    zIndex: 9999,
+    fontSize: "14px",
+  });
+
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), duration);
+}
+
+type PermissionName =
+  | "storage"
+  | "internet"
+  | "camera"
+  | "microphone"
+  | "notifications"; 
+
+let permissionResolver: ((granted: boolean) => void) | null = null;
+
+export function usePermission() {
+  const isAndroid =
+    typeof window !== "undefined" &&
+    (window as any).Android?.requestPermission;
+
+  function request(name: PermissionName): Promise<boolean> {
+    if (isAndroid) {
+      return new Promise<boolean>((resolve) => {
+        permissionResolver = resolve;
+        (window as any).Android.requestPermission(name);
+      });
+    }
+
+    // ---- Web fallback ----
+    console.warn(`[Permission] ${name} auto-granted on web`);
+    return Promise.resolve(true);
+  }
+
+  function has(name: PermissionName): Promise<boolean> {
+    if (isAndroid && (window as any).Android.hasPermission) {
+      return Promise.resolve(
+        (window as any).Android.hasPermission(name)
+      );
+    }
+    return Promise.resolve(true);
+  }
+
+  return {
+    request,
+    has,
+
+    // ergonomic helpers
+    storage: () => request("storage"),
+    camera: () => request("camera"),
+    microphone: () => request("microphone"),
+    notifications: () => request("notifications"),
+    internet: () => request("internet")
+  };
+}
+
+type FS = {
+  readFile(path: string): Promise<string>
+  writeFile(path: string, content: string): Promise<boolean>
+  deleteFile(path: string): Promise<boolean>
+  listDir(path: string): Promise<string[]>
+}
+
+export const FS: FS = {
+  async writeFile(path: string, content: string): Promise<boolean> {
+    try {
+      if (!window.Android) {
+        console.error('Android bridge not available')
+        return false
+      }
+      
+      // Call Android bridge method
+      const result = window.Android.writeFile(path, content)
+      return result === true || result === 'true'
+    } catch (error) {
+      console.error('Error writing file:', error)
+      return false
+    }
+  },
+
+  async readFile(path: string): Promise<string> {
+    try {
+      if (!window.Android) {
+        return JSON.stringify({ error: 'Android bridge not available' })
+      }
+      
+      const result = window.Android.readFile(path)
+      
+      // Handle both string and boolean returns
+      if (typeof result === 'boolean') {
+        return result ? 'true' : 'false'
+      }
+      
+      return result || ''
+    } catch (error) {
+      console.error('Error reading file:', error)
+      return JSON.stringify({ error: error.message })
+    }
+  },
+
+  async deleteFile(path: string): Promise<boolean> {
+    try {
+      if (!window.Android) {
+        console.error('Android bridge not available')
+        return false
+      }
+      
+      // Check if deleteFile method exists on Android bridge
+      if (typeof window.Android.deleteFile === 'function') {
+        const result = window.Android.deleteFile(path)
+        return result === true || result === 'true'
+      } else {
+        // Fallback: Try to write empty content
+        console.warn('deleteFile not available, using writeFile fallback')
+        return await this.writeFile(path, '')
+      }
+    } catch (error) {
+      console.error('Error deleting file:', error)
+      return false
+    }
+  },
+
+  async listDir(path: string = ''): Promise<string[]> {
+    try {
+      if (!window.Android) {
+        console.error('Android bridge not available')
+        return []
+      }
+      
+      // Check if listFiles method exists on Android bridge
+      if (typeof window.Android.listFiles === 'function') {
+        const result = window.Android.listFiles(path)
+        
+        // Parse JSON array from string
+        if (typeof result === 'string') {
+          try {
+            const parsed = JSON.parse(result)
+            return Array.isArray(parsed) ? parsed : []
+          } catch {
+            // If not JSON, return as single item array or empty
+            return result ? [result] : []
+          }
+        }
+        
+        // If result is already an array
+        if (Array.isArray(result)) {
+          return result
+        }
+        
+        return []
+      } else {
+        console.warn('listFiles not available on Android bridge')
+        return []
+      }
+    } catch (error) {
+      console.error('Error listing directory:', error)
+      return []
+    }
+  },
+
+  // Alias for backward compatibility
+  write(path: string, data: string): Promise<boolean> {
+    return this.writeFile(path, data)
+  },
+
+  read(path: string): Promise<string> {
+    return this.readFile(path)
+  }
+}
+
+// TypeScript declarations for Android bridge
+declare global {
+  interface Window {
+    Android?: {
+      writeFile?: (path: string, content: string) => boolean | string
+      readFile?: (path: string) => string
+      deleteFile?: (path: string) => boolean | string
+      listFiles?: (path?: string) => string[] | string
+      // Other Android bridge methods...
+      showToast?: (message: string) => void
+      hasPermission?: (name: string) => boolean
+      requestPermission?: (name: string) => void
+      showDialog?: (title: string, message: string, okText?: string, cancelText?: string) => void
+      nativeFetch?: (url: string, method: string) => string
+      navigate?: (path: string) => void
+    }
+  }
+}
+
+// Utility functions for common operations
+export const FileSystem = {
+  // Save JSON data
+  async saveJSON(path: string, data: any): Promise<boolean> {
+    return await FS.writeFile(path, JSON.stringify(data, null, 2))
+  },
+
+  // Load JSON data
+  async loadJSON<T = any>(path: string): Promise<T | null> {
+    try {
+      const content = await FS.readFile(path)
+      if (!content || content.includes('error')) {
+        return null
+      }
+      return JSON.parse(content)
+    } catch (error) {
+      console.error('Error parsing JSON:', error)
+      return null
+    }
+  },
+
+  // Check if file exists
+  async exists(path: string): Promise<boolean> {
+    try {
+      const content = await FS.readFile(path)
+      return !content.includes('File not found') && !content.includes('error')
+    } catch {
+      return false
+    }
+  },
+
+  // Append to file
+  async appendFile(path: string, content: string): Promise<boolean> {
+    try {
+      const existing = await FS.readFile(path)
+      const newContent = existing + content
+      return await FS.writeFile(path, newContent)
+    } catch (error) {
+      console.error('Error appending to file:', error)
+      return false
+    }
+  },
+
+  // Create directory (by creating a dummy file)
+  async createDirectory(path: string): Promise<boolean> {
+    // Create a .nomedia file in the directory
+    const dirPath = path.endsWith('/') ? path : path + '/'
+    return await FS.writeFile(dirPath + '.nomedia', '')
+  }
+}
+type DialogOptions = {
+  title?: string;
+  message: string;
+  okText?: string;
+  cancelText?: string;
 };
+
+let dialogResolver: ((value: boolean) => void) | null = null;
+
+export function useDialog() {
+  // ---- ANDROID IMPLEMENTATION ----
+  if (typeof window !== "undefined" && (window as any).Android?.showDialog) {
+    return {
+      alert({ title = "", message, okText = "OK" }: DialogOptions) {
+        return new Promise<void>((resolve) => {
+          dialogResolver = () => resolve();
+
+          (window as any).Android.showDialog(
+            title,
+            message,
+            okText,
+            "" // no cancel
+          );
+        });
+      },
+
+      confirm({
+        title = "",
+        message,
+        okText = "OK",
+        cancelText = "Cancel",
+      }: DialogOptions) {
+        return new Promise<boolean>((resolve) => {
+          dialogResolver = resolve;
+
+          (window as any).Android.showDialog(
+            title,
+            message,
+            okText,
+            cancelText
+          );
+        });
+      },
+    };
+  }
+
+  // ---- WEB FALLBACK ----
+  return {
+    alert({ title = "", message }: DialogOptions) {
+      window.alert(title ? `${title}\n\n${message}` : message);
+      return Promise.resolve();
+    },
+
+    confirm({ title = "", message }: DialogOptions) {
+      const result = window.confirm(
+        title ? `${title}\n\n${message}` : message
+      );
+      return Promise.resolve(result);
+    },
+  };
+}
+
 
 /**
  * A React-like useRef hook for mutable references.
@@ -1073,7 +1773,7 @@ const Vader = {
   Match,
   Show,
   Link,
-  showToast
+  showToast, 
 };
 
 Object.defineProperty(window, "Vader", {
