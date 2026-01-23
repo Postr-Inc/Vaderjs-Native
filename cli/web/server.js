@@ -3,7 +3,7 @@ import fsSync from "fs";
 import { serve } from "bun"; 
 import { logger } from "../logger.js";
 import { buildAll } from "../../main.js";
-var PROJECT_ROOT = path.join(process.cwd());
+var PROJECT_ROOT = path.join(process.cwd()); 
 import { colors } from "../logger.js";
 function safeWatch(dir, cb) {
   try {
@@ -24,8 +24,7 @@ async function loadConfig() {
     logger.warn("No 'vader.config.js' found, using defaults.");
     return {};
   }
-}
-var config = await loadConfig();
+} 
 function debounce(fn, delay) {
   let timeoutId;
   return (...args) => {
@@ -40,6 +39,9 @@ var PUBLIC_DIR = path.join(process.cwd(), "public");
 var DIST_DIR = path.join(process.cwd(),   "dist");
 
 export default async function runDevServer() {
+  
+  const config = await loadConfig();
+  
   await buildAll(true);
 
   const clients = new Set();

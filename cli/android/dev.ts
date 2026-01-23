@@ -6,10 +6,10 @@ import { logger } from "../../cli/logger.js";
 import runDevServer from "../../cli/web/server.js";
 import { loadConfig } from "../../main.js";
 import { Config } from "../../config";
-import fsSync from "fs";
-const config: Config = await loadConfig();
+import fsSync from "fs"; 
 
 export async function androidDev() {
+  const config: Config = await loadConfig();
   const { sdkPath, adbPath } = ensureAndroidInstalled();
 
   // Build Android APK in dev mode
