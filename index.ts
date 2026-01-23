@@ -1,14 +1,27 @@
-;(window as any).onNativeDialogResult = function (confirmed: boolean) {
+; (window as any).onNativeDialogResult = function (confirmed: boolean) {
   if (dialogResolver) {
     dialogResolver(confirmed);
     dialogResolver = null;
   }
 };
 
+let isWriting = false;
+
+// Handle the "beforeunload" event to stop reloads
+if (typeof window !== "undefined") {
+  window.addEventListener('beforeunload', (e) => {
+    if (isWriting) {
+      // Standard way to trigger a "Confirm Reload" dialog
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+}
+
 /**
  * Called by Android
  */
-;(window as any).onNativePermissionResult = function (granted: boolean) {
+; (window as any).onNativePermissionResult = function (granted: boolean) {
   if (permissionResolver) {
     permissionResolver(granted);
     permissionResolver = null;
@@ -25,14 +38,14 @@ const ANDROID_KEY_MAP: Record<number, string> = {
 // Already have this: 
 // New: Android bridge
 // @ts-ignore
-window.onNativeKey = function(keyCode: number) {
+window.onNativeKey = function (keyCode: number) {
   const key = ANDROID_KEY_MAP[keyCode];
   if (!key) return;
-   // add debug element to show key presses
-   const debugElement = document.getElementById("debug-keypress");
-   if (debugElement) {
-     debugElement.textContent = `Key pressed: ${key}`;
-   }
+  // add debug element to show key presses
+  const debugElement = document.getElementById("debug-keypress");
+  if (debugElement) {
+    debugElement.textContent = `Key pressed: ${key}`;
+  }
 
   // Create a fake KeyboardEvent so FocusManager can handle it
   const event = new KeyboardEvent("keydown", { key });
@@ -45,9 +58,9 @@ let deletions: Fiber[] | null = null;
 let wipFiber: Fiber | null = null;
 let hookIndex = 0;
 let isRenderScheduled = false;
- /**
- * FocusManager - Handles D-pad navigation and focus management
- */
+/**
+* FocusManager - Handles D-pad navigation and focus management
+*/
 class FocusManager {
   constructor() {
     this.focusableSelectors = [
@@ -67,27 +80,27 @@ class FocusManager {
     this.focusableElements = [];
     this.isEnabled = true;
     this.debug = false;
-    
+
     this.init();
   }
 
   init() {
     // Listen for the keyboard events dispatched by onNativeKey
     document.addEventListener('keydown', this.handleKeyDown.bind(this));
-    
+
     // Update focusable elements when DOM changes
     this.observeDOMChanges();
-    
+
     // Initial focusable elements scan
     this.updateFocusableElements();
-    
+
     // Try to focus first element by default
     setTimeout(() => {
       if (this.focusableElements.length > 0) {
         this.setFocusIndex(0);
       }
     }, 100);
-    
+
     // Debug visualization
     if (this.debug) {
       this.addDebugStyles();
@@ -96,10 +109,10 @@ class FocusManager {
 
   handleKeyDown(event) {
     if (!this.isEnabled) return;
-    
+
     const key = event.key;
-    
-    switch(key) {
+
+    switch (key) {
       case 'ArrowUp':
         event.preventDefault();
         this.navigate(-1, 'vertical');
@@ -129,30 +142,30 @@ class FocusManager {
 
   updateFocusableElements() {
     const allElements = Array.from(document.querySelectorAll(this.focusableSelectors.join(',')));
-    
+
     // Filter elements that are visible and not disabled
     this.focusableElements = allElements.filter(el => {
       const style = window.getComputedStyle(el);
-      const isVisible = style.display !== 'none' && 
-                       style.visibility !== 'hidden' && 
-                       style.opacity !== '0';
+      const isVisible = style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0';
       const isEnabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
       const hasTabIndex = el.tabIndex !== -1 || el.hasAttribute('tabindex');
-      
+
       return isVisible && isEnabled && (hasTabIndex || this.isFocusableByDefault(el));
     });
-    
+
     // Sort by visual position (top-to-bottom, left-to-right)
     this.focusableElements.sort((a, b) => {
       const rectA = a.getBoundingClientRect();
       const rectB = b.getBoundingClientRect();
-      
+
       if (Math.abs(rectA.top - rectB.top) < 10) {
         return rectA.left - rectB.left;
       }
       return rectA.top - rectB.top;
     });
-    
+
     // Update current focus index if current element still exists
     if (this.currentFocusIndex >= 0) {
       const currentElement = this.getCurrentElement();
@@ -160,82 +173,82 @@ class FocusManager {
         this.currentFocusIndex = this.focusableElements.indexOf(currentElement);
       }
     }
-    
+
     if (this.currentFocusIndex === -1 && this.focusableElements.length > 0) {
       this.currentFocusIndex = 0;
     }
-    
+
     if (this.debug) {
       this.highlightFocusableElements();
     }
   }
 
   isFocusableByDefault(element) {
-    return ['button', 'a[href]', 'input', 'select', 'textarea'].some(selector => 
+    return ['button', 'a[href]', 'input', 'select', 'textarea'].some(selector =>
       element.matches(selector)
     );
   }
 
   navigate(direction, orientation) {
     if (this.focusableElements.length === 0) return;
-    
+
     const currentElement = this.getCurrentElement();
     if (!currentElement && this.focusableElements.length > 0) {
       this.setFocusIndex(0);
       return;
     }
-    
+
     const currentIndex = this.focusableElements.indexOf(currentElement);
     const currentRect = currentElement.getBoundingClientRect();
-    
+
     let bestCandidate = null;
     let bestScore = Infinity;
-    
+
     this.focusableElements.forEach((element, index) => {
       if (index === currentIndex) return;
-      
+
       const rect = element.getBoundingClientRect();
       let score = 0;
-      
+
       if (orientation === 'vertical') {
-        const verticalDistance = direction > 0 ? 
-          rect.top - currentRect.bottom : 
+        const verticalDistance = direction > 0 ?
+          rect.top - currentRect.bottom :
           currentRect.top - rect.bottom;
-        
-        const horizontalDistance = Math.abs((rect.left + rect.right) / 2 - 
-                                          (currentRect.left + currentRect.right) / 2);
-        
+
+        const horizontalDistance = Math.abs((rect.left + rect.right) / 2 -
+          (currentRect.left + currentRect.right) / 2);
+
         if (verticalDistance < 0) return; // Wrong direction
-        
+
         // Prioritize elements directly below/above, then consider horizontal alignment
         score = verticalDistance + horizontalDistance * 0.3;
       } else { // horizontal
-        const horizontalDistance = direction > 0 ? 
-          rect.left - currentRect.right : 
+        const horizontalDistance = direction > 0 ?
+          rect.left - currentRect.right :
           currentRect.left - rect.right;
-        
-        const verticalDistance = Math.abs((rect.top + rect.bottom) / 2 - 
-                                        (currentRect.top + currentRect.bottom) / 2);
-        
+
+        const verticalDistance = Math.abs((rect.top + rect.bottom) / 2 -
+          (currentRect.top + currentRect.bottom) / 2);
+
         if (horizontalDistance < 0) return; // Wrong direction
-        
+
         // Prioritize elements directly right/left, then consider vertical alignment
         score = horizontalDistance + verticalDistance * 0.3;
       }
-      
+
       if (score < bestScore) {
         bestScore = score;
         bestCandidate = index;
       }
     });
-    
+
     // If no candidate found in primary direction, try opposite direction
     if (bestCandidate === null && this.focusableElements.length > 1) {
-      const nextIndex = (currentIndex + direction + this.focusableElements.length) % 
-                       this.focusableElements.length;
+      const nextIndex = (currentIndex + direction + this.focusableElements.length) %
+        this.focusableElements.length;
       bestCandidate = nextIndex;
     }
-    
+
     if (bestCandidate !== null) {
       this.setFocusIndex(bestCandidate);
     }
@@ -243,34 +256,34 @@ class FocusManager {
 
   setFocusIndex(index) {
     if (index < 0 || index >= this.focusableElements.length) return;
-    
+
     this.currentFocusIndex = index;
     const element = this.focusableElements[index];
-    
+
     // Remove focus from all elements
     this.focusableElements.forEach(el => {
       el.classList.remove('focused', 'dpad-focused');
       el.removeAttribute('data-focused');
     });
-    
+
     // Add focus to current element
     element.classList.add('focused', 'dpad-focused');
     element.setAttribute('data-focused', 'true');
     element.focus();
-    
+
     // Scroll into view if needed
     element.scrollIntoView({
       behavior: 'smooth',
       block: 'center',
       inline: 'center'
     });
-    
+
     // Dispatch custom event
     element.dispatchEvent(new CustomEvent('dpadfocus', {
       bubbles: true,
       detail: { element, index }
     }));
-    
+
     if (this.debug) {
       console.log('Focused element:', element, 'Index:', index);
     }
@@ -283,7 +296,7 @@ class FocusManager {
   activateCurrentElement() {
     const element = this.getCurrentElement();
     if (!element) return;
-    
+
     // Trigger appropriate action based on element type
     if (element.tagName === 'A' || element.tagName === 'BUTTON') {
       element.click();
@@ -301,7 +314,7 @@ class FocusManager {
     document.dispatchEvent(new CustomEvent('dpadback', {
       bubbles: true
     }));
-    
+
     // Or go back in history
     if (window.history.length > 1) {
       window.history.back();
@@ -313,14 +326,14 @@ class FocusManager {
     const observer = new MutationObserver(() => {
       this.updateFocusableElements();
     });
-    
+
     observer.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
       attributeFilter: ['style', 'class', 'hidden', 'disabled', 'tabindex']
     });
-    
+
     // Also update on resize and scroll
     window.addEventListener('resize', () => this.updateFocusableElements());
     window.addEventListener('scroll', () => this.updateFocusableElements());
@@ -355,7 +368,7 @@ class FocusManager {
   highlightFocusableElements() {
     // Remove existing highlights
     document.querySelectorAll('.focus-highlight').forEach(el => el.remove());
-    
+
     // Add highlight element
     const highlight = document.createElement('div');
     highlight.className = 'focus-highlight';
@@ -392,8 +405,8 @@ class FocusManager {
   }
 }
 
- 
- 
+
+
 interface Fiber {
   type?: string | Function;
   dom?: Node;
@@ -408,10 +421,10 @@ interface Fiber {
   effectTag?: "PLACEMENT" | "UPDATE" | "DELETION";
   hooks?: Hook[];
   key?: string | number | null;
-    propsCache?: Record<string, any>;
+  propsCache?: Record<string, any>;
   __compareProps?: (prev: any, next: any) => boolean;
   __skipMemo?: boolean;
-  _needsUpdate?: boolean; 
+  _needsUpdate?: boolean;
 }
 
 export interface VNode {
@@ -490,7 +503,7 @@ function createDom(fiber: Fiber): Node {
 
 function isSvgElement(fiber: Fiber): boolean {
   // Check if the fiber is an <svg> itself or inside an <svg>
-  let parent = fiber.parent; 
+  let parent = fiber.parent;
   if (fiber.type === "svg") return true;
   while (parent) {
     if (parent.type === "svg") return true;
@@ -578,7 +591,7 @@ function updateDom(dom: Node, prevProps: any, nextProps: any): void {
       }
     });
 
-    Object.keys(nextProps)
+  Object.keys(nextProps)
     .filter(isEvent)
     .filter(isNew(prevProps, nextProps))
     .forEach(name => {
@@ -658,7 +671,7 @@ function commitDeletion(fiber: Fiber | null): void {
  */
 export function render(element: VNode, container: Node): void {
   container.innerHTML = "";
-  
+
   wipRoot = {
     dom: container,
     props: {
@@ -668,7 +681,7 @@ export function render(element: VNode, container: Node): void {
   };
   deletions = [];
   nextUnitOfWork = wipRoot;
- requestAnimationFrame(workLoop);
+  requestAnimationFrame(workLoop);
 }
 
 /**
@@ -684,7 +697,7 @@ function workLoop(): void {
     deletions = [];
     nextUnitOfWork = wipRoot;
   }
- 
+
   while (nextUnitOfWork) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
   }
@@ -694,7 +707,7 @@ function workLoop(): void {
   }
 }
 
- 
+
 /**
  * Performs work on a single fiber unit.
  * @param {Fiber} fiber - The fiber to perform work on.
@@ -702,7 +715,7 @@ function workLoop(): void {
  */
 function performUnitOfWork(fiber: Fiber): Fiber | null {
   const isFunctionComponent = fiber.type instanceof Function;
- 
+
   if (isFunctionComponent) {
     updateFunctionComponent(fiber);
   } else {
@@ -727,7 +740,7 @@ function performUnitOfWork(fiber: Fiber): Fiber | null {
  * Updates a function component fiber.
  * @param {Fiber} fiber - The function component fiber to update.
  */
- function updateFunctionComponent(fiber: Fiber) {
+function updateFunctionComponent(fiber: Fiber) {
   wipFiber = fiber;
   hookIndex = 0;
   fiber.hooks = fiber.alternate?.hooks || [];
@@ -757,11 +770,11 @@ function updateHostComponent(fiber: Fiber): void {
  * @param {Fiber} wipFiber - The work-in-progress fiber.
  * @param {VNode[]} elements - The new child elements.
  */
- function reconcileChildren(wipFiber: Fiber, elements: VNode[]) {
+function reconcileChildren(wipFiber: Fiber, elements: VNode[]) {
   let index = 0;
   let oldFiber = wipFiber.alternate?.child;
   let prevSibling: Fiber | null = null;
-  
+
   // Create map of existing fibers by key
   const existingFibers = new Map<string | number | null, Fiber>();
   while (oldFiber) {
@@ -776,7 +789,7 @@ function updateHostComponent(fiber: Fiber): void {
     const element = elements[index];
     const key = element?.key ?? index;
     const oldFiber = existingFibers.get(key);
-    
+
     const sameType = oldFiber && element && element.type === oldFiber.type;
     let newFiber: Fiber | null = null;
 
@@ -878,16 +891,16 @@ function createTextElement(text: string): VNode {
  * @returns {[T, (action: T | ((prevState: T) => T)) => void]} A stateful value and a function to update it.
  */
 
- 
 
- export function useState<T>(initial: T | (() => T)): [T, (action: T | ((prevState: T) => T)) => void] {
+
+export function useState<T>(initial: T | (() => T)): [T, (action: T | ((prevState: T) => T)) => void] {
   if (!wipFiber) {
     throw new Error("Hooks can only be called inside a Vader.js function component.");
   }
 
-  let hook = wipFiber.hooks[hookIndex]; 
+  let hook = wipFiber.hooks[hookIndex];
   if (!hook) {
-    hook = { 
+    hook = {
       state: typeof initial === "function" ? (initial as () => T)() : initial,
       queue: [],
       _needsUpdate: false
@@ -897,25 +910,25 @@ function createTextElement(text: string): VNode {
 
   const setState = (action: T | ((prevState: T) => T)) => {
     // Calculate new state based on current state 
-    const newState = typeof action === "function" 
+    const newState = typeof action === "function"
       ? (action as (prevState: T) => T)(hook.state)
       : action;
-    
-      hook.state = newState;  
-      
-      // Reset work-in-progress root to trigger re-r 
-      
-      deletions = [];
-      nextUnitOfWork = wipRoot;
-      
-      // Start the render process
-      requestAnimationFrame(workLoop);
+
+    hook.state = newState;
+
+    // Reset work-in-progress root to trigger re-r 
+
+    deletions = [];
+    nextUnitOfWork = wipRoot;
+
+    // Start the render process
+    requestAnimationFrame(workLoop);
   };
 
   hookIndex++;
   return [hook.state, setState];
 }
- 
+
 /**
  * A React-like useEffect hook for side effects.
  * @param {Function} callback - The effect callback.
@@ -925,16 +938,16 @@ export function useEffect(callback: Function, deps?: any[]): void {
   if (!wipFiber) {
     throw new Error("Hooks can only be called inside a Vader.js function component.");
   }
-  
+
   let hook = wipFiber.hooks[hookIndex];
   if (!hook) {
     hook = { deps: undefined, _cleanupFn: undefined };
     wipFiber.hooks[hookIndex] = hook;
   }
-  
-  const hasChanged = hook.deps === undefined || 
-                   !deps || 
-                   deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
+
+  const hasChanged = hook.deps === undefined ||
+    !deps ||
+    deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
 
   if (hasChanged) {
     if (hook._cleanupFn) {
@@ -949,7 +962,7 @@ export function useEffect(callback: Function, deps?: any[]): void {
       }
     }, 0);
   }
-  
+
   hook.deps = deps;
   hookIndex++;
 }
@@ -975,14 +988,14 @@ export function Switch({ children }: { children: VNode[] }): VNode | null {
  * @param {boolean} props.when - The condition to match.
  * @param {VNode[]} props.children - The child components.
  * @returns {VNode|null} The children if when is true, otherwise null.
- */ 
+ */
 export function Match({ when, children }: { when: boolean, children: VNode[] }): VNode | null {
-   //@ts-ignore
+  //@ts-ignore
   return when ? children : null;
 }
 
-export function  Show({ when, children }: { when: boolean, children: VNode[] }): VNode | null {
-   //@ts-ignore
+export function Show({ when, children }: { when: boolean, children: VNode[] }): VNode | null {
+  //@ts-ignore
   return when ? children : null;
 }
 /**
@@ -1024,7 +1037,7 @@ type PermissionName =
   | "internet"
   | "camera"
   | "microphone"
-  | "notifications"; 
+  | "notifications";
 
 let permissionResolver: ((granted: boolean) => void) | null = null;
 
@@ -1068,6 +1081,42 @@ export function usePermission() {
   };
 }
 
+export const App = {
+  // Internal helper to talk to C#
+  _send: function (command, payload = {}) {
+    const id = Math.random().toString(36).substring(2, 9);
+    const message = { id, command, ...payload };
+
+    return new Promise((resolve, reject) => {
+      // Optional: Listen for a one-time response from C#
+      const handler = (event) => {
+        if (event.data.id === id) {
+          window.removeEventListener('message', handler);
+          if (event.data.error) reject(event.data.error);
+          else resolve(event.data.data);
+        }
+      };
+      window.chrome.webview.addEventListener('message', handler);
+      window.chrome.webview.postMessage(message);
+    });
+  },
+
+  // Window Management
+  resize: (width, height) => App._send("setWindowSize", { width, height }),
+  close: () => App._send("closeApp"),
+
+  // OS Integration
+  openLink: (url) => App._send("openExternal", { url }),
+  revealInExplorer: (path) => App._send("showInFolder", { path }),
+  openInBrowser: function (url) {
+    window.chrome.webview.postMessage({
+      id: "req_" + Date.now(),
+      command: "openExternal",
+      url: url
+    });
+  }
+};
+
 type FS = {
   readFile(path: string): Promise<string>
   writeFile(path: string, content: string): Promise<boolean>
@@ -1075,182 +1124,167 @@ type FS = {
   listDir(path: string): Promise<string[]>
 }
 
+// Request tracker for Windows PostMessage
+const pendingRequests = new Map<string, (data: any) => void>();
+
+// Listen for responses from Windows C#
+if (typeof window !== "undefined" && window.chrome?.webview) {
+  window.chrome.webview.addEventListener('message', (event: any) => {
+    console.log("Received from C#:", event.data);
+    const { id, data, error } = event.data;
+
+    if (pendingRequests.has(id)) {
+      if (error) {
+        console.error(`C# Error for request ${id}:`, error);
+        pendingRequests.get(id)!(null);
+      } else {
+        pendingRequests.get(id)!(data);
+      }
+      pendingRequests.delete(id);
+    }
+  });
+}
+
+/**
+ * Sends a command to the Windows C# backend
+ */
+function callWindows(command: string, args: any): Promise<any> {
+  return new Promise((resolve) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    pendingRequests.set(id, resolve);
+
+    const message = {
+      id,
+      command,
+      ...args
+    };
+
+    console.log("Sending to C#:", message);
+    window.chrome.webview.postMessage(message);
+  });
+}
+
+/**
+ * Convert absolute paths to relative paths for Windows
+ * Windows C# expects paths relative to WebData directory
+ */
+function toRelativePath(path: string): string {
+  // If it's already a relative path, return as-is
+  if (!path.startsWith('/') && !/^[a-zA-Z]:/.test(path)) {
+    return path;
+  }
+
+  // Extract just the filename if it's an absolute path
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1];
+}
+
 export const FS: FS = {
   async writeFile(path: string, content: string): Promise<boolean> {
+    const currentPlatform = platform();
+
     try {
-      if (!window.Android) {
-        console.error('Android bridge not available')
-        return false
+      if (currentPlatform === "windows") {
+        // Use relative path for Windows
+        const relativePath = toRelativePath(path);
+        return await callWindows('writeFile', {
+          path: relativePath,
+          content
+        });
       }
-      
-      // Call Android bridge method
-      const result = window.Android.writeFile(path, content)
-      return result === true || result === 'true'
+
+      if (currentPlatform === "android" && window.Android) {
+        const result = window.Android.writeFile(path, content);
+        return result === true || result === 'true';
+      }
     } catch (error) {
-      console.error('Error writing file:', error)
-      return false
+      console.error('FS.writeFile error:', error);
+      return false;
     }
+
+    console.error('FS: Platform not supported or bridge missing');
+    return false;
   },
 
   async readFile(path: string): Promise<string> {
+    const currentPlatform = platform();
+
     try {
-      if (!window.Android) {
-        return JSON.stringify({ error: 'Android bridge not available' })
+      if (currentPlatform === "windows") {
+        // Use relative path for Windows
+        const relativePath = toRelativePath(path);
+        const result = await callWindows('readFile', { path: relativePath });
+        return result === "FILE_NOT_FOUND" ? "" : result;
       }
-      
-      const result = window.Android.readFile(path)
-      
-      // Handle both string and boolean returns
-      if (typeof result === 'boolean') {
-        return result ? 'true' : 'false'
+
+      if (currentPlatform === "android" && window.Android) {
+        const result = window.Android.readFile(path);
+        if (typeof result === 'boolean') return result ? 'true' : 'false';
+        return result || '';
       }
-      
-      return result || ''
     } catch (error) {
-      console.error('Error reading file:', error)
-      return JSON.stringify({ error: error.message })
+      console.error('FS.readFile error:', error);
+      return "";
     }
+
+    return "";
   },
 
   async deleteFile(path: string): Promise<boolean> {
+    const currentPlatform = platform();
+
     try {
-      if (!window.Android) {
-        console.error('Android bridge not available')
-        return false
+      if (currentPlatform === "windows") {
+        // Use relative path for Windows
+        const relativePath = toRelativePath(path);
+        return await callWindows('deleteFile', { path: relativePath });
       }
-      
-      // Check if deleteFile method exists on Android bridge
-      if (typeof window.Android.deleteFile === 'function') {
-        const result = window.Android.deleteFile(path)
-        return result === true || result === 'true'
-      } else {
-        // Fallback: Try to write empty content
-        console.warn('deleteFile not available, using writeFile fallback')
-        return await this.writeFile(path, '')
+
+      if (currentPlatform === "android" && window.Android) {
+        if (typeof window.Android.deleteFile === 'function') {
+          const result = window.Android.deleteFile(path);
+          return result === true || result === 'true';
+        }
+        return await this.writeFile(path, '');
       }
     } catch (error) {
-      console.error('Error deleting file:', error)
-      return false
+      console.error('FS.deleteFile error:', error);
+      return false;
     }
+
+    return false;
   },
 
   async listDir(path: string = ''): Promise<string[]> {
+    const currentPlatform = platform();
+
     try {
-      if (!window.Android) {
-        console.error('Android bridge not available')
-        return []
+      if (currentPlatform === "windows") {
+        // Use relative path for Windows
+        const relativePath = toRelativePath(path);
+        const result = await callWindows('listDir', { path: relativePath });
+        return Array.isArray(result) ? result : [];
       }
-      
-      // Check if listFiles method exists on Android bridge
-      if (typeof window.Android.listFiles === 'function') {
-        const result = window.Android.listFiles(path)
-        
-        // Parse JSON array from string
-        if (typeof result === 'string') {
+
+      if (currentPlatform === "android" && window.Android) {
+        if (typeof window.Android.listFiles === 'function') {
+          const result = window.Android.listFiles(path);
           try {
-            const parsed = JSON.parse(result)
-            return Array.isArray(parsed) ? parsed : []
+            const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+            return Array.isArray(parsed) ? parsed : [];
           } catch {
-            // If not JSON, return as single item array or empty
-            return result ? [result] : []
+            return result ? [result] : [];
           }
         }
-        
-        // If result is already an array
-        if (Array.isArray(result)) {
-          return result
-        }
-        
-        return []
-      } else {
-        console.warn('listFiles not available on Android bridge')
-        return []
       }
     } catch (error) {
-      console.error('Error listing directory:', error)
-      return []
+      console.error('FS.listDir error:', error);
+      return [];
     }
-  },
 
-  // Alias for backward compatibility
-  write(path: string, data: string): Promise<boolean> {
-    return this.writeFile(path, data)
-  },
-
-  read(path: string): Promise<string> {
-    return this.readFile(path)
+    return [];
   }
-}
-
-// TypeScript declarations for Android bridge
-declare global {
-  interface Window {
-    Android?: {
-      writeFile?: (path: string, content: string) => boolean | string
-      readFile?: (path: string) => string
-      deleteFile?: (path: string) => boolean | string
-      listFiles?: (path?: string) => string[] | string
-      // Other Android bridge methods...
-      showToast?: (message: string) => void
-      hasPermission?: (name: string) => boolean
-      requestPermission?: (name: string) => void
-      showDialog?: (title: string, message: string, okText?: string, cancelText?: string) => void
-      nativeFetch?: (url: string, method: string) => string
-      navigate?: (path: string) => void
-    }
-  }
-}
-
-// Utility functions for common operations
-export const FileSystem = {
-  // Save JSON data
-  async saveJSON(path: string, data: any): Promise<boolean> {
-    return await FS.writeFile(path, JSON.stringify(data, null, 2))
-  },
-
-  // Load JSON data
-  async loadJSON<T = any>(path: string): Promise<T | null> {
-    try {
-      const content = await FS.readFile(path)
-      if (!content || content.includes('error')) {
-        return null
-      }
-      return JSON.parse(content)
-    } catch (error) {
-      console.error('Error parsing JSON:', error)
-      return null
-    }
-  },
-
-  // Check if file exists
-  async exists(path: string): Promise<boolean> {
-    try {
-      const content = await FS.readFile(path)
-      return !content.includes('File not found') && !content.includes('error')
-    } catch {
-      return false
-    }
-  },
-
-  // Append to file
-  async appendFile(path: string, content: string): Promise<boolean> {
-    try {
-      const existing = await FS.readFile(path)
-      const newContent = existing + content
-      return await FS.writeFile(path, newContent)
-    } catch (error) {
-      console.error('Error appending to file:', error)
-      return false
-    }
-  },
-
-  // Create directory (by creating a dummy file)
-  async createDirectory(path: string): Promise<boolean> {
-    // Create a .nomedia file in the directory
-    const dirPath = path.endsWith('/') ? path : path + '/'
-    return await FS.writeFile(dirPath + '.nomedia', '')
-  }
-}
+};
 type DialogOptions = {
   title?: string;
   message: string;
@@ -1332,7 +1366,7 @@ export function useRef<T>(initial: T): { current: T } {
   }
 
   hookIndex++;
-   //@ts-ignore
+  //@ts-ignore
   return hook;
 }
 
@@ -1352,9 +1386,9 @@ export function useLayoutEffect(callback: Function, deps?: any[]): void {
     wipFiber.hooks[hookIndex] = hook;
   }
 
-  const hasChanged = hook.deps === undefined || 
-                   !deps || 
-                   deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
+  const hasChanged = hook.deps === undefined ||
+    !deps ||
+    deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
 
   if (hasChanged) {
     if (hook._cleanupFn) {
@@ -1476,9 +1510,9 @@ export function useMemo<T>(factory: () => T, deps?: any[]): T {
     wipFiber.hooks[hookIndex] = hook;
   }
 
-  const hasChanged = hook.deps === undefined || 
-                   !deps || 
-                   deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
+  const hasChanged = hook.deps === undefined ||
+    !deps ||
+    deps.some((dep, i) => !Object.is(dep, hook.deps[i]));
   if (hasChanged) {
     hook.memoizedValue = factory();
     hook.deps = deps;
@@ -1579,9 +1613,9 @@ export function useQuery<T>(
   const [error, setError] = useState<Error | null>(null);
 
   // FIX: Destructure primitive values from cacheOptions for stable dependencies.
-  const { 
-    enabled = DEFAULT_CACHE_OPTIONS.enabled, 
-    expiryMs = DEFAULT_CACHE_OPTIONS.expiryMs 
+  const {
+    enabled = DEFAULT_CACHE_OPTIONS.enabled,
+    expiryMs = DEFAULT_CACHE_OPTIONS.expiryMs
   } = cacheOptions;
 
   // FIX: Memoize the options object so its reference is stable across renders.
@@ -1598,7 +1632,7 @@ export function useQuery<T>(
       if (mergedCacheOptions.enabled) {
         const cached = queryCache.get(url);
         const now = Date.now();
-        
+
         if (cached && now - cached.timestamp < mergedCacheOptions.expiryMs) {
           setData(cached.data);
           setLoading(false);
@@ -1608,13 +1642,13 @@ export function useQuery<T>(
 
       // Not in cache or expired - fetch fresh data
       const response = await fetch(url);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const result = await response.json();
-      
+
       // Update cache if enabled
       if (mergedCacheOptions.enabled) {
         queryCache.set(url, {
@@ -1623,7 +1657,7 @@ export function useQuery<T>(
           options: mergedCacheOptions
         });
       }
-      
+
       setData(result);
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -1752,6 +1786,23 @@ export function useOnClickOutside(ref: { current: HTMLElement | null }, handler:
     };
   }, [ref, handler]);
 }
+
+export function platform(): "windows" | "android" | "web" {
+  // 1. Check for Windows WebView2 (CoreWebView2)
+  // This is the most reliable way to detect the WinUI 3 bridge
+  if (typeof window !== "undefined" && window.chrome && window.chrome.webview) {
+    return "windows";
+  }
+
+  // 2. Check for Android User Agent
+  if (typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)) {
+    return "android";
+  }
+
+  // 3. Fallback to web
+  return "web";
+}
+
 const Vader = {
   render,
   createElement,
@@ -1773,7 +1824,9 @@ const Vader = {
   Match,
   Show,
   Link,
-  showToast, 
+  showToast,
+  platform,
+  App
 };
 
 Object.defineProperty(window, "Vader", {
