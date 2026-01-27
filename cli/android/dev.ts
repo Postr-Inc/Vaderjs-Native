@@ -1,21 +1,37 @@
 import path from "path";
-import { execSync, spawnSync } from "child_process";
+import { execSync, spawn } from "child_process";
+import fsSync from "fs";
+
 import { ensureAndroidInstalled } from "../../cli/android/sdk.js";
 import { buildAndroid } from "../../cli/android/build.js";
 import { logger } from "../../cli/logger.js";
 import runDevServer from "../../cli/web/server.js";
 import { loadConfig } from "../../main.js";
 import { Config } from "../../config";
-import fsSync from "fs"; 
 
 export async function androidDev() {
   const config: Config = await loadConfig();
   const { sdkPath, adbPath } = ensureAndroidInstalled();
 
-  // Build Android APK in dev mode
+  const emulatorBin = path.join(
+    sdkPath,
+    "emulator",
+    process.platform === "win32" ? "emulator.exe" : "emulator"
+  );
+
+  // ----------------------------
+  // Start dev server
+  // ----------------------------
+  logger.info("Starting dev server...");
+  const devServerPromise = runDevServer();
+
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // ----------------------------
+  // Build Android (dev)
+  // ----------------------------
   await buildAndroid(true);
 
-  // Determine APK path dynamically
   const appId = config.app?.id || "com.vaderjs.app";
   const APK_PATH = path.join(process.cwd(), "build", `${appId}-debug.apk`);
 
@@ -23,39 +39,91 @@ export async function androidDev() {
     throw new Error(`APK not found at ${APK_PATH}`);
   }
 
+  // ----------------------------
   // Check connected devices
-  let devices = execSync(`"${adbPath}" devices`, { encoding: "utf8" })
+  // ----------------------------
+const getDevices = () =>
+  execSync(`"${adbPath}" devices`, { encoding: "utf8" })
     .split("\n")
-    .filter(l => l.endsWith("\tdevice"));
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("List"))
+    .filter(l => l.includes("device") && !l.includes("offline"));
 
-  // Start emulator if no devices
-  if (!devices.length) {
-    logger.warn("No devices found, starting emulator…");
+  let devices = getDevices();
 
-    const emulator = path.join(
-      sdkPath,
-      "emulator",
-      process.platform === "win32" ? "emulator.exe" : "emulator"
-    );
-
-    spawnSync(emulator, ["-avd", "Pixel_6_API_34"], {
-      detached: true,
-      stdio: "ignore",
-    });
-
-    execSync(`"${adbPath}" wait-for-device`);
+  // ----------------------------
+  // List available AVDs
+  // ----------------------------
+  let emulators: string[] = [];
+  try {
+    emulators = execSync(`"${emulatorBin}" -list-avds`, { encoding: "utf8" })
+      .split("\n")
+      .map(e => e.trim())
+      .filter(Boolean);
+  } catch {
+    logger.warn("Could not list Android emulators");
   }
 
-  logger.step("Installing APK");
+  // ----------------------------
+  // Start emulator if needed
+  // ----------------------------
+  if (!devices.length && emulators.length > 0) {
+    const avd = emulators[0];
+    logger.warn(`No devices found, starting emulator: ${avd}`);
 
-  // Install APK on device/emulator
+    spawn(
+      emulatorBin,
+      ["-avd", avd, "-netdelay", "none", "-netspeed", "full"],
+      {
+        detached: true,
+        stdio: "ignore",
+      }
+    );
+
+    // Wait for emulator to connect
+    logger.info("Waiting for emulator device...");
+    execSync(`"${adbPath}" wait-for-device`);
+
+    // Wait for Android to fully boot
+    logger.info("Waiting for Android to boot...");
+    execSync(
+      `"${adbPath}" shell while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done`,
+      { stdio: "inherit" }
+    );
+
+    logger.success("Emulator booted");
+  }
+
+  // ----------------------------
+  // Verify device exists
+  // ----------------------------
+  devices = getDevices();
+  if (!devices.length) {
+    throw new Error("No Android devices available");
+  }
+
+  // ----------------------------
+  // Install APK
+  // ----------------------------
+  logger.step("Installing APK");
   execSync(`"${adbPath}" install -r "${APK_PATH}"`, { stdio: "inherit" });
   logger.success("APK installed");
-  // Start dev server
-  await runDevServer();
-  // Launch the app 
-  logger.step("Launching app on device/emulator");
-  execSync(`"${adbPath}" shell am start -n "${appId}/com.${appId.split('.').slice(1).join('.')}.MainActivity"`, { stdio: "inherit" });
 
-  logger.success("Android dev running 🚀");
+  // ----------------------------
+  // Launch app
+  // ----------------------------
+  const activity = `${appId}/.MainActivity`;
+
+
+  logger.step("Launching app");
+  execSync(`"${adbPath}" shell am start -n "${activity}"`, {
+    stdio: "inherit",
+  });
+
+  logger.success("Android dev running 🚀 — HMR active");
+
+  // ----------------------------
+  // Keep dev server alive
+  // ----------------------------
+  await devServerPromise;
 }

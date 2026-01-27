@@ -1,12 +1,19 @@
 #!/usr/bin/env bun
 
-import { colors } from "./cli/logger";
 import { build, serve } from "bun";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
-import { init } from "./cli";
+import { initProject  } from "./cli";
 import { logger, timedStep } from "./cli/logger";
+import { colors } from "./cli/logger";
+import runDevServer from "./cli/web/server";
+import { runProdServer } from "./cli/web/server";
+import { androidDev } from "./cli/android/dev.js";
+import { buildAndroid } from "./cli/android/build";
+import { buildWindows } from "./cli/windows/build";
+import openWinApp from "./cli/windows/dev";
+import { Config } from "./config";
 
 // --- CONSTANTS ---
 const PROJECT_ROOT = process.cwd();
@@ -17,17 +24,157 @@ const SRC_DIR = path.join(PROJECT_ROOT, "src");
 const VADER_SRC_PATH = path.join(PROJECT_ROOT, "node_modules", "vaderjs-native", "index.ts");
 const TEMP_SRC_DIR = path.join(PROJECT_ROOT, ".vader_temp_src");
 
-// --- CACHE SYSTEM (Initialize first) ---
+// --- CACHE SYSTEM ---
 const buildCache = new Map<string, { mtime: number; hash: string }>();
 const configCache = new Map<string, { config: Config; mtime: number }>();
 let config: Config = {};
 let htmlInjections: string[] = [];
 
+// --- SIMPLIFIED WATCHER ---
+class FileWatcher {
+  constructor() {
+    this.watchers = new Map();
+    this.onChangeCallbacks = [];
+    this.isRebuilding = false;
+    this.lastRebuildTime = 0;
+    this.REBUILD_COOLDOWN = 1000; // 1 second cooldown between rebuilds
+  }
+
+  shouldIgnorePath(filePath) {
+    const normalized = path.normalize(filePath);
+    // Ignore dist folder and its contents
+    if (normalized.includes(path.normalize(DIST_DIR))) {
+      return true;
+    }
+    // Ignore node_modules
+    if (normalized.includes(path.normalize('node_modules'))) {
+      return true;
+    }
+    // Ignore .git folder
+    if (normalized.includes(path.normalize('.git'))) {
+      return true;
+    }
+    // Ignore the temporary source directory
+    if (normalized.includes(path.normalize(TEMP_SRC_DIR))) {
+      return true;
+    }
+    return false;
+  }
+
+  async watchDirectory(dirPath, recursive = true) {
+    // Skip if directory should be ignored
+    if (this.shouldIgnorePath(dirPath) || !fsSync.existsSync(dirPath)) {
+      return;
+    }
+    
+    try {
+      // Close existing watcher if any
+      if (this.watchers.has(dirPath)) {
+        try {
+          this.watchers.get(dirPath).close();
+        } catch (err) {
+          // Ignore close errors
+        }
+      }
+      
+      // Create new watcher
+      const watcher = fsSync.watch(dirPath, { recursive }, (eventType, filename) => {
+        if (!filename) return;
+        
+        const changedFile = path.join(dirPath, filename);
+        const normalizedChanged = path.normalize(changedFile);
+        
+        // Skip if file should be ignored
+        if (this.shouldIgnorePath(normalizedChanged)) {
+          return;
+        }
+        
+        // Check if this is a file we care about
+        if (this.shouldTriggerRebuild(normalizedChanged)) {
+          logger.info(`File changed: ${path.relative(PROJECT_ROOT, normalizedChanged)}`);
+          
+          // Only trigger if not already rebuilding and cooldown has passed
+          const now = Date.now();
+          if (!this.isRebuilding && (now - this.lastRebuildTime) > this.REBUILD_COOLDOWN) {
+            this.triggerChange(normalizedChanged);
+          } else if (this.isRebuilding) {
+            logger.info(`Skipping rebuild - already rebuilding`);
+          } else {
+            logger.info(`Skipping rebuild - cooldown period`);
+          }
+        }
+      });
+      
+      watcher.on('error', (err) => {
+        logger.warn(`Watcher error on ${dirPath}:`, err.message);
+      });
+      
+      this.watchers.set(dirPath, watcher);
+      
+      logger.info(`Watching directory: ${path.relative(PROJECT_ROOT, dirPath)}`);
+    } catch (err) {
+      logger.warn(`Could not watch directory ${dirPath}:`, err.message);
+    }
+  }
+
+  shouldTriggerRebuild(filePath) {
+    // Only trigger rebuild for specific file types
+    const ext = path.extname(filePath).toLowerCase();
+    const triggerExtensions = ['.js', '.jsx', '.ts', '.tsx', '.css', '.html', '.json', '.config.js', '.config.ts'];
+    return triggerExtensions.includes(ext) || ext === '';
+  }
+
+  triggerChange(filePath) {
+    for (const callback of this.onChangeCallbacks) {
+      try {
+        callback(filePath);
+      } catch (err) {
+        logger.error("Change callback error:", err);
+      }
+    }
+  }
+
+  onChange(callback) {
+    this.onChangeCallbacks.push(callback);
+    return () => {
+      const index = this.onChangeCallbacks.indexOf(callback);
+      if (index > -1) this.onChangeCallbacks.splice(index, 1);
+    };
+  }
+
+  setRebuilding(state) {
+    this.isRebuilding = state;
+    if (state) {
+      this.lastRebuildTime = Date.now();
+    }
+  }
+
+  clear() {
+    for (const [dir, watcher] of this.watchers) {
+      try {
+        watcher.close();
+      } catch (err) {
+        // Ignore close errors
+      }
+    }
+    this.watchers.clear();
+    this.onChangeCallbacks = [];
+    this.isRebuilding = false;
+  }
+}
+
+const watcher = new FileWatcher();
+
 // --- CONFIG & PLUGIN SYSTEM ---
 interface VaderAPI {
   runCommand: (cmd: string | string[]) => Promise<void>;
   injectHTML: (content: string) => void;
-  log: (msg: string) => void;
+  log: {
+    warn: (msg: string) => void;
+    info: (msg: string) => void;
+    success: (msg: string) => void;
+    step: (msg: string) => void;
+  };
   getProjectRoot: () => string;
   getDistDir: () => string;
   getPublicDir: () => string;
@@ -40,7 +187,12 @@ const vaderAPI: VaderAPI = {
     await p.exited;
   },
   injectHTML: (content) => htmlInjections.push(content),
-  log: (msg) => logger.info(`[Plugin] ${msg}`),
+  log: {
+    warn: (msg) => logger.warn(msg),
+    info: (msg) => logger.info(msg),
+    success: (msg) => logger.success(msg),
+    step: (msg) => logger.step(msg)
+  },
   getProjectRoot: () => PROJECT_ROOT,
   getDistDir: () => DIST_DIR,
   getPublicDir: () => PUBLIC_DIR,
@@ -51,8 +203,8 @@ export async function loadConfig(projectDir?: string): Promise<Config> {
   projectDir = projectDir || process.cwd();
   const configKey = `config-${projectDir}`;
   
-  const configPathTs = path.join(projectDir, "vaderjs.config.ts");
   const configPathJs = path.join(projectDir, "vaderjs.config.js");
+  const configPathTs = path.join(projectDir, "vaderjs.config.ts");
   
   let configPath: string | null = null;
   let stat: fs.Stats | null = null;
@@ -158,6 +310,20 @@ async function parallelForEach<T>(
   for (const chunk of chunks) {
     await Promise.all(chunk.map((item, index) => callback(item, index)));
   }
+}
+
+async function copyIfNeeded(src: string, dest: string): Promise<void> {
+  const cacheKey = `copy-${src}`;
+  const stat = await fs.stat(src).catch(() => null);
+  if (!stat) return;
+  
+  const cached = buildCache.get(cacheKey);
+  if (cached && cached.mtime === stat.mtimeMs) {
+    return;
+  }
+  
+  await fs.copyFile(src, dest);
+  buildCache.set(cacheKey, { mtime: stat.mtimeMs, hash: await getFileHash(src) });
 }
 
 // --- BUILD LOGIC ---
@@ -380,31 +546,42 @@ async function copyPublicAssetsRecursive(srcDir: string, destDir: string): Promi
   });
 }
 
-async function copyIfNeeded(src: string, dest: string): Promise<void> {
-  const cacheKey = `copy-${src}`;
-  const stat = await fs.stat(src).catch(() => null);
-  if (!stat) return;
+async function buildAppEntrypoint(entryPath: string, name: string, isDev = false): Promise<void> {
+  const outDir = path.join(DIST_DIR, name === 'index' ? '' : name);
+  const outJsPath = path.join(outDir, 'index.js');
+  const outHtmlPath = path.join(outDir, 'index.html');
   
-  const cached = buildCache.get(cacheKey);
-  if (cached && cached.mtime === stat.mtimeMs) {
+  // Check if rebuild is needed
+  if (!isDev && !(await needsRebuild(entryPath, outJsPath))) {
+    logger.info(`Entrypoint "${name}" is up to date`);
     return;
   }
   
-  await fs.copyFile(src, dest);
-  buildCache.set(cacheKey, { mtime: stat.mtimeMs, hash: await getFileHash(src) });
-}
-
-/**
- * Step 6: Build app entrypoints with incremental compilation
- */
-async function buildAppEntrypoints(isDev = false): Promise<void> {
-  if (!fsSync.existsSync(APP_DIR)) {
-    logger.warn("No '/app' directory found, skipping app entrypoint build.");
-    return;
-  }
+  await fs.mkdir(outDir, { recursive: true });
   
-  await fs.mkdir(DIST_DIR, { recursive: true });
+  // --- CSS HANDLING ---
+  const cssLinks: string[] = [];
+  let content = await fs.readFile(entryPath, "utf8");
+  const cssImports = [...content.matchAll(/import\s+['"](.*\.css)['"]/g)];
   
+  await parallelForEach(cssImports, async (match) => {
+    const cssImportPath = match[1];
+    const sourceCssPath = path.resolve(path.dirname(entryPath), cssImportPath);
+    
+    try {
+      await fs.access(sourceCssPath);
+      const relativeCssPath = path.relative(APP_DIR, sourceCssPath);
+      const destCssPath = path.join(DIST_DIR, relativeCssPath);
+      
+      await copyIfNeeded(sourceCssPath, destCssPath);
+      const htmlRelativePath = path.relative(outDir, destCssPath).replace(/\\/g, '/');
+      cssLinks.push(`<link rel="stylesheet" href="${htmlRelativePath}">`);
+    } catch {
+      logger.warn(`CSS file not found: ${sourceCssPath}`);
+    }
+  });
+  
+  // --- HTML GENERATION ---
   const devClientScript = isDev
     ? `<script>
         const ws = new WebSocket("ws://" + location.host + "/__hmr");
@@ -415,71 +592,7 @@ async function buildAppEntrypoints(isDev = false): Promise<void> {
       </script>`
     : "";
   
-  // Find all entrypoints
-  const entrypoints: Array<{ name: string; path: string }> = [];
-  function findEntrypoints(dir: string, baseDir = ""): void {
-    const items = fsSync.readdirSync(dir, { withFileTypes: true });
-    for (const item of items) {
-      const fullPath = path.join(dir, item.name);
-      const relativePath = path.join(baseDir, item.name);
-      
-      if (item.isDirectory()) {
-        findEntrypoints(fullPath, relativePath);
-      } else if (item.name === "index.tsx" || item.name === "index.jsx") {
-        const name = baseDir || 'index';
-        entrypoints.push({ name, path: fullPath });
-      }
-    }
-  }
-  
-  findEntrypoints(APP_DIR);
-  
-  if (entrypoints.length === 0) {
-    logger.info("No app entrypoints found.");
-    return;
-  }
-  
-  // Pre-load Vader source for faster processing
-  const vaderSourcePromise = fs.readFile(VADER_SRC_PATH, "utf8");
-  
-  // Process entrypoints in parallel
-  await parallelForEach(entrypoints, async ({ name, path: entryPath }) => {
-    const outDir = path.join(DIST_DIR, name === 'index' ? '' : name);
-    const outJsPath = path.join(outDir, 'index.js');
-    const outHtmlPath = path.join(outDir, 'index.html');
-    
-    // Check if rebuild is needed
-    if (!isDev && !(await needsRebuild(entryPath, outJsPath))) {
-      logger.info(`Entrypoint "${name}" is up to date`);
-      return;
-    }
-    
-    await fs.mkdir(outDir, { recursive: true });
-    
-    // --- CSS HANDLING ---
-    const cssLinks: string[] = [];
-    let content = await fs.readFile(entryPath, "utf8");
-    const cssImports = [...content.matchAll(/import\s+['"](.*\.css)['"]/g)];
-    
-    await parallelForEach(cssImports, async (match) => {
-      const cssImportPath = match[1];
-      const sourceCssPath = path.resolve(path.dirname(entryPath), cssImportPath);
-      
-      try {
-        await fs.access(sourceCssPath);
-        const relativeCssPath = path.relative(APP_DIR, sourceCssPath);
-        const destCssPath = path.join(DIST_DIR, relativeCssPath);
-        
-        await copyIfNeeded(sourceCssPath, destCssPath);
-        const htmlRelativePath = path.relative(outDir, destCssPath).replace(/\\/g, '/');
-        cssLinks.push(`<link rel="stylesheet" href="${htmlRelativePath}">`);
-      } catch {
-        logger.warn(`CSS file not found: ${sourceCssPath}`);
-      }
-    });
-    
-    // --- HTML GENERATION ---
-    const windowsStyle = globalThis.isBuildingForWindows ? `
+  const windowsStyle = globalThis.isBuildingForWindows ? `
   <style>
   .title-bar {
     display: flex;
@@ -493,8 +606,8 @@ async function buildAppEntrypoints(isDev = false): Promise<void> {
     -webkit-app-region: no-drag; 
   }
   </style>` : '';
-    
-    const htmlContent = `<!DOCTYPE html>
+  
+  const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -506,52 +619,71 @@ async function buildAppEntrypoints(isDev = false): Promise<void> {
 </head>
 <body>
   <div id="app"></div>
-  <script src="./index.js"></script>
-  ${devClientScript}
+  <script src="./index.js"></script> 
 </body>
 </html>`;
-    
-    await fs.writeFile(outHtmlPath, htmlContent);
-    
-    // --- JS BUILD ---
-    await build({
-      entrypoints: [entryPath],
-      outdir: outDir,
-      target: "browser",
-      minify: !isDev,
-      sourcemap: isDev ? "inline" : "external",
-      jsxFactory: "Vader.createElement",
-      jsxFragment: "Fragment",
-      plugins: [publicAssetPlugin()],
-      loader: {
-        '.js': 'jsx',
-        '.ts': 'tsx',
-        '.css': 'text',
-      },
-      define: isDev ? {
-        'process.env.NODE_ENV': '"development"'
-      } : {
-        'process.env.NODE_ENV': '"production"'
-      }
-    });
-    
-    // --- FIX IMPORT PATHS IN JS ---
-    let jsContent = await fs.readFile(outJsPath, "utf8");
-    const vaderSource = await vaderSourcePromise;
-    
-    // Replace Vader import with actual source
-    jsContent = jsContent.replace(
-      /import\s+\*\s+as\s+Vader\s+from\s+['"]vaderjs['"];?/,
-      vaderSource
-    );
-    
-    await fs.writeFile(outJsPath, jsContent);
-    
-    // Update cache
-    const stat = await fs.stat(entryPath);
-    const hash = await getFileHash(entryPath);
-    buildCache.set(`${entryPath}:${outJsPath}`, { mtime: stat.mtimeMs, hash });
+  
+  await fs.writeFile(outHtmlPath, htmlContent);
+  
+  // --- JS BUILD ---
+  await build({
+    entrypoints: [entryPath],
+    outdir: outDir,
+    target: "browser",
+    minify: !isDev,
+    sourcemap: isDev ? "inline" : "external",
+    jsxFactory: "Vader.createElement",
+    jsxFragment: "Fragment",
+    plugins: [publicAssetPlugin()],
+    loader: {
+      '.js': 'jsx',
+      '.ts': 'tsx',
+      '.css': 'text',
+    },
+    define: isDev ? {
+      'process.env.NODE_ENV': '"development"'
+    } : {
+      'process.env.NODE_ENV': '"production"'
+    }
   });
+  
+  // --- FIX IMPORT PATHS IN JS ---
+  let jsContent = await fs.readFile(outJsPath, "utf8");
+  const vaderSource = await fs.readFile(VADER_SRC_PATH, "utf8");
+  
+  // Replace Vader import with actual source
+  jsContent = jsContent.replace(
+    /import\s+\*\s+as\s+Vader\s+from\s+['"]vaderjs['"];?/,
+    vaderSource
+  );
+  
+  await fs.writeFile(outJsPath, jsContent);
+  
+  // Update cache
+  const stat = await fs.stat(entryPath);
+  const hash = await getFileHash(entryPath);
+  buildCache.set(`${entryPath}:${outJsPath}`, { mtime: stat.mtimeMs, hash });
+}
+
+async function buildAppEntrypoints(isDev = false): Promise<void> {
+  if (!fsSync.existsSync(APP_DIR)) {
+    logger.warn("No '/app' directory found, skipping app entrypoint build.");
+    return;
+  }
+  
+  await fs.mkdir(DIST_DIR, { recursive: true });
+  
+  // Find all index.jsx/tsx files in app directory
+  const entries = fsSync.readdirSync(APP_DIR, { recursive: true })
+    .filter(file => /index\.(jsx|tsx)$/.test(file))
+    .map(file => ({
+      name: path.dirname(file) === '.' ? 'index' : path.dirname(file).replace(/\\/g, '/'),
+      path: path.join(APP_DIR, file)
+    }));
+
+  for (const { name, path: entryPath } of entries) {
+    await buildAppEntrypoint(entryPath, name, isDev);
+  }
 }
 
 // --- MAIN BUILD FUNCTION ---
@@ -602,15 +734,6 @@ export async function buildAll(isDev = false): Promise<void> {
   logger.success(`Build completed in ${duration}ms. Output in ${DIST_DIR}`);
 }
 
-// --- IMPORTS ---
-import runDevServer from "./cli/web/server";
-import { runProdServer } from "./cli/web/server";
-import { androidDev } from "./cli/android/dev.js";
-import { buildAndroid } from "./cli/android/build";
-import { buildWindows } from "vaderjs-native/cli/windows/build";
-import openWinApp from "vaderjs-native/cli/windows/dev";
-import { Config } from "vaderjs-native/config";
-
 // --- SCRIPT ENTRYPOINT ---
 async function main(): Promise<void> {
   // Banner
@@ -622,19 +745,53 @@ async function main(): Promise<void> {
    |____/____/_____/     /_____/ |_| |_|
   ${colors.reset}`);
   
-  // Load config with caching 
-  config.port = config.port || 3000;
-  
   const command = process.argv[2];
-  const env = process.env.NODE_ENV || 'development';
+  const arg = process.argv[3];
   
   // Set global flags
   globalThis.isDev = command?.includes('dev') || false;
   globalThis.isBuildingForWindows = command?.includes('windows') || false;
   
+  // Commands that don't require config
+  if (command === "init") {
+    await initProject(arg);
+    return;
+  }
+
+  if (command === "add") {
+    if (!arg) {
+      logger.error("Please specify a plugin to add.");
+      process.exit(1);
+    }
+    await addPlugin(arg);
+    return;
+  }
+
+  // Load config for runtime commands
+  config = await loadConfig();
+  config.port = config.port || 3000;
+  
   // Command router
   const commandHandlers: Record<string, () => Promise<void>> = {
+    'add': async () => {
+      if (!arg) {
+        logger.error("Please specify a plugin to add.");
+        process.exit(1);
+      }
+      await addPlugin(arg);
+    },
+    'list_plugins': async () => {
+      await listPlugins();
+    },
+    'remove': async () => {
+      if (!arg) {
+        logger.error("Please specify a plugin to remove.");
+        process.exit(1);
+      }
+      await removePlugin(arg);
+    },
     'dev': async () => {
+      globalThis.isDev = true;
       await runDevServer("web");
     },
     'android:dev': async () => {
@@ -663,24 +820,27 @@ async function main(): Promise<void> {
     'serve': async () => {
       await buildAll(false);
       await runProdServer();
-    },
-    'init': async () => {
-      await init().catch((e: Error) => {
-        console.error("Initialization failed:", e);
-        process.exit(1);
-      });
-    },
+    }
   };
   
   if (command && command in commandHandlers) {
     await commandHandlers[command]();
-  } else if (command) {
-    logger.error(`Unknown command: ${command}`);
-    logger.info("Available commands: dev, android:dev, android:build, windows:dev, windows:build, build, serve, init");
-    process.exit(1);
   } else {
-    logger.error("No command provided");
-    logger.info("Available commands: dev, android:dev, android:build, windows:dev, windows:build, build, serve, init");
+    logger.error(`Unknown command: ${command ?? ""}`);
+    logger.info(`
+Available commands:
+  dev            Start dev server
+  build          Build for production
+  serve          Build + serve production
+  init [dir]     Create a new Vader project
+  add <plugin>   Add a Vader plugin
+  remove <plugin> Remove a Vader plugin
+  list_plugins   List currently installed Vaderjs plugins
+  android:dev    Start Android development
+  android:build  Build Android app
+  windows:dev    Start Windows development
+  windows:build  Build Windows app
+    `.trim());
     process.exit(1);
   }
 }

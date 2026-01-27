@@ -39,7 +39,7 @@ export type AndroidConfig = {
   permissions?: string[];
   icon?: string;
   splash?: string;
-  deepLinks: string[]
+  deepLinks?: string[]
 
   signing?: {
     keystore: string;

@@ -1,264 +1,279 @@
 #!/usr/bin/env bun
-
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import readline from "readline";
 
-function ask(question) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-    return new Promise((resolve) =>
-        rl.question(question + " ", (answer) => {
-            rl.close();
-            resolve(answer.trim());
-        })
-    );
+const cwd = process.cwd();
+
+/* -------------------------------- utils -------------------------------- */
+/* -------------------------------- utils -------------------------------- */
+function ask(question: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) =>
+    rl.question(question + " ", (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    })
+  );
 }
 
 async function run(cmd: string, args: string[] = []) {
-    try {
-        const proc = Bun.spawn([cmd, ...args], {
-            stdout: "inherit",
-            stderr: "inherit",
-        });
-
-        const status = await proc.exited;
-        if (status !== 0) {
-            console.error(`Command failed: ${cmd} ${args.join(" ")}`);
-            process.exit(1);
-        }
-    } catch (error) {
-        console.error(`Error executing command: ${error}`);
-        process.exit(1);
-    }
+  const proc = Bun.spawn([cmd, ...args], { stdout: "inherit", stderr: "inherit" });
+  const code = await proc.exited;
+  if (code !== 0) process.exit(code);
 }
 
-export async function init() {
-    console.log("🚀 Welcome to Vader.js project initializer!");
-
-    const cwd = process.cwd();
-    let projectDir = await ask(
-        `Enter the directory to initialize the project (default: current dir):`
-    );
-    if (!projectDir) projectDir = ".";
-
-    projectDir = path.resolve(cwd, projectDir);
-    if (!fsSync.existsSync(projectDir)) {
-        await fs.mkdir(projectDir, { recursive: true });
-        console.log(`Created directory: ${projectDir}`);
-    }
-
-    // Confirm Tailwind usage
-    let useTailwind = await ask("Include TailwindCSS v4 support? (y/n):");
-    while (!["y", "n", "yes", "no"].includes(useTailwind)) {
-        useTailwind = await ask("Please answer 'y' or 'n':");
-    }
-    const wantsTailwind = useTailwind === "y" || useTailwind === "yes";
-
-    // Create folders: app, src, public
-    const appDir = path.join(projectDir, "app");
-    const srcDir = path.join(projectDir, "src");
-    const publicDir = path.join(projectDir, "public");
-
-    for (const dir of [appDir, srcDir, publicDir]) {
-        if (!fsSync.existsSync(dir)) {
-            await fs.mkdir(dir, { recursive: true });
-            console.log(`Created folder: ${dir}`);
-        }
-    }
-
-    // Create example app/index.jsx with counter
-    const counterCode = wantsTailwind
-        ? `import * as Vader from "vaderjs-native";
-
-function Counter() {
- let [count, setCount] = Vader.useState(0);
-  return (
-    <div class="max-w-md mx-auto p-6 bg-gray-100 rounded shadow text-center">
-      <h1 class="text-2xl font-bold mb-4">Counter Example</h1>
-      <p class="text-xl mb-4">Count: {count}</p>
-      <button
-        class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        onClick={() => setCount(count + 1)}
-      >
-        Increment
-      </button>
-    </div>
-  );
-}
-  
-Vader.render(Vader.createElement(Counter, null), document.getElementById("app"));
-`
-        : `import * as Vader from "vaderjs-native";
-
-function Counter() {
-  let [count, setCount] = Vader.useState(0);
-  return (
-    <div style={{ maxWidth: "300px", margin: "auto", padding: "1rem", background: "#eee", borderRadius: "8px", textAlign: "center" }}>
-      <h1 style={{ fontWeight: "bold", marginBottom: "1rem" }}>Counter Example</h1>
-      <p style={{ fontSize: "1.25rem", marginBottom: "1rem" }}>Count: {count}</p>
-      <button onClick={() => setCount(count + 1)}>Increment</button> 
-    </div>
-  );
+function logSection(title: string) {
+  console.log(`\n${title}`);
+  console.log("─".repeat(title.length));
 }
 
-Vader.render(Vader.createElement(Counter, null), document.getElementById("app"));
-`;
+function getFlags() {
+  return new Set(process.argv.slice(2));
+}
 
-    await fs.writeFile(path.join(appDir, "index.jsx"), counterCode);
-    console.log(`Created example route: ${path.join("app", "index.jsx")}`);
-
-    // Create public/styles.css
-    if (wantsTailwind) {
-        await fs.writeFile(path.join(publicDir, "styles.css"), `@import 'tailwindcss';\n`);
-    } else {
-        await fs.writeFile(path.join(publicDir, "styles.css"), `/* Add your styles here */\n`);
-    }
-    console.log(`Created public/styles.css`);
-
-    // Create minimal package.json if not exist
-
-
-    // Install dependencies: vaderjs + optionally tailwindcss, postcss plugins, autoprefixer
-    console.log("Installing dependencies with Bun...");
-    const deps = ["vaderjs", "autoprefixer"];
-    if (wantsTailwind) {
-        deps.push("tailwindcss@4", "@tailwindcss/postcss", "postcss-cli");
-    }
-    await run("bun", ["install", ...deps]);
-    console.log("✅ Dependencies installed.");
-
-    // If Tailwind requested, create minimal tailwind.config.cjs and postcss.config.cjs
-    if (wantsTailwind) {
-        const tailwindConfig = `module.exports = {
-  content: ["./app/**/*.{js,jsx,ts,tsx}"],
-  theme: {
-    extend: {},
+/* ---------------------------- UI frameworks ---------------------------- */
+const UI_FRAMEWORKS = {
+  none: {
+    name: "None (Basic)",
+    runtimeDeps: [],
+    devDeps: [],
   },
-  plugins: [],
-};`;
-        await fs.writeFile(path.join(projectDir, "tailwind.config.cjs"), tailwindConfig);
-        console.log("Created tailwind.config.cjs");
 
-        const postcssConfig = `export default {
-  plugins: {
-    "@tailwindcss/postcss": {},
-    autoprefixer: {},
+  daisyui: {
+    name: "VaderUI (DaisyUI)",
+    runtimeDeps: ["vaderjs-daisyui", "daisyui"],
+    devDeps: ["tailwindcss", "postcss", "autoprefixer"],
+    pluginImport: `import daisyui from "vaderjs-daisyui";`,
+    pluginRef: "daisyui",
+    requiresRootCss: true,
+    requiresTailwindConfig: true,
+  },
+};
+
+/* ------------------------------ initProject ------------------------------ */
+export async function initProject(dir?: string) {
+  console.log("🚀 Initializing Vader.js project");
+
+  const projectDir = path.resolve(cwd, dir || ".");
+  if (!fsSync.existsSync(projectDir)) await fs.mkdir(projectDir, { recursive: true });
+
+  if (fsSync.readdirSync(projectDir).length) {
+    const confirm = await ask("Directory is not empty. Continue? (y/n):");
+    if (confirm !== "y") process.exit(0);
   }
-};`;
-        await fs.writeFile(path.join(projectDir, "postcss.config.cjs"), postcssConfig);
-        console.log("Created postcss.config.cjs");
-    }
 
-    // Create vaderjs.config.ts regardless, add Tailwind plugin if needed
-    const vaderConfig = ` 
+  /* language */
+  console.log("\nSelect language:");
+  console.log("  1. JavaScript");
+  console.log("  2. TypeScript");
+  const useTypeScript = (await ask("Choose (1-2):")) === "2";
+  const fileExt = useTypeScript ? "tsx" : "jsx";
+  const configExt = useTypeScript ? "ts" : "js";
+
+  /* framework */
+  console.log("\nSelect UI framework:");
+  const keys = Object.keys(UI_FRAMEWORKS);
+  keys.forEach((k, i) => console.log(`  ${i + 1}. ${UI_FRAMEWORKS[k].name}`));
+  const fwKey = keys[Number(await ask(`Choose (1-${keys.length}):`)) - 1];
+  const framework = UI_FRAMEWORKS[fwKey];
+
+  /* folders */
+  logSection("📁 Creating folders");
+  for (const d of ["app", "src", "public"]) {
+    await fs.mkdir(path.join(projectDir, d), { recursive: true });
+  }
+
+  /* root.css */
+  if (framework.requiresRootCss) {
+    await fs.writeFile(
+      path.join(projectDir, "root.css"),
+      `@import "tailwindcss";\n@plugin "daisyui";\n`
+    );
+  }
+
+  /* tailwind.config.js */
+  if (framework.requiresTailwindConfig) {
+    await fs.writeFile(
+      path.join(projectDir, "tailwind.config.js"),
+      `export default {
+  content: [
+    "./app/**/*.{js,jsx,ts,tsx}",
+    "./src/**/*.{js,jsx,ts,tsx}"
+  ],
+
+  safelist: [
+    "btn",
+    "btn-primary",
+    "btn-secondary",
+    "btn-accent",
+    "alert",
+    "alert-error",
+    "card",
+    "card-body",
+    "badge",
+    "badge-info",
+  ],
+
+  theme: { extend: {} },
+  plugins: [require("daisyui")]
+};
+`
+    );
+  }
+
+  /* --------------------- VITE-STYLE DAISYUI DEMO --------------------- */
+  const appCode = `import * as Vader from "vaderjs-native";
+import { useState } from "vaderjs-native";
+import Button from "vaderjs-daisyui/Components/Actions/Button";
+
+function Main() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div className="min-h-screen bg-base-200 flex flex-col items-center justify-center">
+      <div className="text-center mb-10">
+        <h1 className="text-5xl font-bold">
+          Vader<span className="text-primary">.js</span>
+        </h1>
+        <p className="opacity-70 mt-2">Next-gen UI, zero React</p>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-6 max-w-5xl w-full px-6">
+        <div className="card bg-base-100 shadow-xl">
+          <div className="card-body">
+            <h2 className="card-title">Instant Reactivity</h2>
+            <p>Signals + fibers, no virtual DOM tax.</p>
+          </div>
+        </div>
+
+        <div className="card bg-base-100 shadow-xl">
+          <div className="card-body">
+            <h2 className="card-title">DaisyUI Built-In</h2>
+            <p>Accessible components styled with Tailwind.</p>
+          </div>
+        </div>
+
+        <div className="card bg-base-100 shadow-xl">
+          <div className="card-body">
+            <h2 className="card-title">Multi-Platform</h2>
+            <p>Web, Android, Windows from one codebase.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-10 flex gap-4">
+        <Button color="primary" onClick={() => setCount(count + 1)}>
+          Count: {count}
+        </Button>
+        <Button color="secondary" onClick={() => setCount(0)}>
+          Reset
+        </Button>
+      </div>
+
+      <p className="mt-6 opacity-60 text-sm">
+        Edit <code>app/index.${fileExt}</code> and save to reload
+      </p>
+    </div>
+  );
+}
+
+Vader.render(Vader.createElement(Main), document.getElementById("app"));`;
+
+  await fs.writeFile(path.join(projectDir, `app/index.${fileExt}`), appCode);
+
+  /* ---------------- jsconfig (EXACT – DO NOT TOUCH) ---------------- */
+  await fs.writeFile(
+    path.join(projectDir, "jsconfig.json"),
+    JSON.stringify(
+      {
+        compilerOptions: {
+          jsx: "react",
+          jsxFactory: "Vader.createElement",
+          jsxFragmentFactory: "Fragment",
+        },
+        include: ["app", "src"],
+      },
+      null,
+      2
+    )
+  );
+
+  /* config */
+  const name = path.basename(projectDir);
+  const config = `${framework.pluginImport}
 import defineConfig from "vaderjs-native/config";
-import tailwind from "vaderjs-native/plugins/tailwind";    
+
 export default defineConfig({
   app: {
-    name: "ExampleVaderApp",
-    id: "com.example.vaderapp",
-    version: {
-      code: 1,
-      name: "1.0.0",
-    },
+    name: "${name}",
+    id: "com.example.${name}",
+    version: { code: 1, name: "1.0.0" },
   },
-
   platforms: {
-    android: {
-      minSdk: 24,
-      targetSdk: 34,
-      permissions: [
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-      ],
-      icon: "./assets/android/icon.png",
-      splash: "./assets/android/splash.png",
-    },
-
-    web: {
-      title:  "VaderJS App",
-      themeColor: "#111827",
-    },
-
-    // future
-    ios: {},
-    windows: {},
+    web: { title: "${name}", themeColor: "#111827" },
+    windows: {
+      publisher: "CN=VaderJS",
+      icon: "./assets/windows/icon.png",
+      executionAlias: "${name}",
+      sdkVersion: "net8.0-windows10.0.19041.0",
+      minSdkVersion: "10.0.17763.0"
+    }
   },
-
-  plugins: [tailwind]
+  plugins: [${framework.pluginRef}]
 });`;
 
-    await fs.writeFile(path.join(projectDir, "vaderjs.config.ts"), vaderConfig);
-    console.log("Created vaderjs.config.ts");
+  await fs.writeFile(path.join(projectDir, `vaderjs.config.${configExt}`), config);
 
-    // Create jsconfig.json for VSCode/IDE support
-    const jsConfig = {
-        compilerOptions: {
-            jsx: "react",
-            jsxFactory: "Vader.createElement",
-            jsxFragmentFactory: "Fragment",
-        },
-    };
-    await fs.writeFile(path.join(projectDir, "jsconfig.json"), JSON.stringify(jsConfig, null, 2));
-    console.log("Created jsconfig.json");
+  /* package.json */
+  const pkgPath = path.join(projectDir, "package.json");
+  const pkg = {
+    name,
+    version: "1.0.0",
+    type: "module",
+    dependencies: { "vaderjs-native": "latest" },
+    devDependencies: {},
+  };
 
-    // Final instructions
-    const pkgJsonPath = path.join(projectDir, "package.json");
+  framework.runtimeDeps.forEach((d) => (pkg.dependencies[d] = "latest"));
+  framework.devDeps.forEach((d) => (pkg.devDependencies[d] = "latest"));
 
-    if (!fsSync.existsSync(pkgJsonPath)) {
-        // If package.json doesn't exist, create it with basic content
-        const pkg = {
-            name: path.basename(projectDir),
-            version: "1.0.0",
-            scripts: {
-                "android:dev": "bun run vaderjs android:dev",
-                "android:build": "bun run vaderjs android:build",
-                dev: "bun run vaderjs dev",
-                build: "bun run vaderjs build",
-                serve: "bun run vaderjs serve",
-            },
-            dependencies: {
-                vaderjs: "latest",
-            },
-        };
+  await fs.writeFile(pkgPath, JSON.stringify(pkg, null, 2));
 
-        // If Tailwind is requested, add it to the dependencies
-        if (wantsTailwind) {
-            pkg.dependencies.tailwindcss = "latest";
-            pkg.dependencies["@tailwindcss/postcss"] = "latest";
-            pkg.dependencies.postcss = "latest";
-            pkg.dependencies.autoprefixer = "latest";
-        }
+  logSection("📦 Installing dependencies");
+  await run("bun", ["install"]);
 
-        await fs.writeFile(pkgJsonPath, JSON.stringify(pkg, null, 2));
-        console.log(`Created package.json`);
-    } else {
-        // If package.json exists, update it by adding Tailwind if it's not there
-        const pkgJson = JSON.parse(await fs.readFile(pkgJsonPath, "utf8"));
+  console.log("\n✅ Project ready!");
+}
 
-        // Only update the dependencies and scripts if Tailwind is enabled
-        if (wantsTailwind && !pkgJson.dependencies.tailwindcss) {
-            pkgJson.dependencies.tailwindcss = "latest";
-            pkgJson.dependencies["@tailwindcss/postcss"] = "latest";
-            pkgJson.dependencies.postcss = "latest";
-            pkgJson.dependencies.autoprefixer = "latest";
-        }
+/* ------------------------------- plugins ------------------------------- */
+export async function addPlugin(name: string) {
+  const pkgName = name.startsWith("vaderjs-") ? name : `vaderjs-${name}`;
+  await run("bun", ["add", pkgName]);
 
-        // Ensure the scripts are in place (if they're not there already)
-        if (!pkgJson.scripts) pkgJson.scripts = {};
-        pkgJson.scripts.start = pkgJson.scripts.start || "bun run vaderjs build && bun run vaderjs serve";
-        pkgJson.scripts.build = pkgJson.scripts.build || "bun run vaderjs build";
-        pkgJson.scripts.dev = pkgJson.scripts.dev || "bun run vaderjs dev";
+  const configPath = fsSync.existsSync("vaderjs.config.ts")
+    ? "vaderjs.config.ts"
+    : "vaderjs.config.js";
 
-        await fs.writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
-        console.log(`Updated package.json`);
-    }
+  let config = await fs.readFile(configPath, "utf8");
+  const importName = pkgName.replace(/^vaderjs-/, "").replace(/-/g, "_");
 
-    console.log(`\n🎉 Vader.js project initialized at:\n${projectDir}`);
-    console.log(`Run cd ${projectDir} to navigate into the project folder`);
-    console.log("Run `bun run dev` or your build script to get started.");
+  if (!config.includes(pkgName)) {
+    config = `import ${importName} from "${pkgName}";\n` + config;
+    config = config.replace(/plugins:\s*\[/, `plugins: [${importName}, `);
+    await fs.writeFile(configPath, config);
+  }
+}
+
+export async function removePlugin(name: string) {
+  const pkgName = name.startsWith("vaderjs-") ? name : `vaderjs-${name}`;
+  await run("bun", ["remove", pkgName]);
+}
+
+export async function listPlugins() {
+  const pkg = JSON.parse(await fs.readFile("package.json", "utf8"));
+  Object.keys(pkg.dependencies || {})
+    .filter((d) => d.startsWith("vaderjs-"))
+    .forEach((d) => console.log("•", d));
 }

@@ -1802,7 +1802,78 @@ export function platform(): "windows" | "android" | "web" {
   // 3. Fallback to web
   return "web";
 }
-
+/**
+ * Creates a Vader.js component with automatic prop memoization.
+ * @template P - Component props type 
+ * @param {(props: P) => VNode} renderFn - The component render function
+ * @returns {(props: P) => VNode} A memoized component function
+ */
+export function component<P extends object>( renderFn: (props: P) => VNode): (props: P) => VNode {
+  // Create a wrapper function that will be the actual component
+  const ComponentWrapper = (props: P): VNode => {
+    // Check if props have changed
+    let fiber = wipFiber;
+    while (fiber && fiber.type !== ComponentWrapper) {
+      fiber = fiber.alternate;
+    }
+    
+    const prevProps = fiber?.alternate?.props || {};
+    const nextProps = props;
+    
+    // Create a simple props comparison
+    // For now, we'll do a shallow comparison of props
+    let shouldUpdate = false;
+    
+    // Check if props count changed
+    const prevKeys = Object.keys(prevProps);
+    const nextKeys = Object.keys(nextProps);
+    
+    if (prevKeys.length !== nextKeys.length) {
+      shouldUpdate = true;
+    } else {
+      // Check each prop
+      for (const key of nextKeys) {
+        if (nextProps[key] !== prevProps[key]) {
+          shouldUpdate = true;
+          break;
+        }
+      }
+    }
+    
+    // Mark fiber for memoization
+    const currentFiber = wipFiber;
+    if (currentFiber) {
+      currentFiber.propsCache = nextProps;
+      currentFiber.__compareProps = (prev: P, next: P) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
+        
+        if (prevKeys.length !== nextKeys.length) return false;
+        
+        for (const key of nextKeys) {
+          if (next[key] !== prev[key]) return false;
+        }
+        
+        return true;
+      };
+      
+      currentFiber.__skipMemo = !shouldUpdate;
+    }
+    
+    // If props haven't changed, return the previous fiber's children
+    if (!shouldUpdate && fiber?.alternate?.child) {
+      return fiber.alternate.child.props.children[0];
+    }
+    
+    // Otherwise render with new props
+    return renderFn(props);
+  };
+  
+  // Set display name for debugging
+  (ComponentWrapper as any).displayName = name;
+  
+  return ComponentWrapper;
+}
 const Vader = {
   render,
   createElement,
@@ -1826,6 +1897,7 @@ const Vader = {
   Link,
   showToast,
   platform,
+  component,
   App
 };
 
