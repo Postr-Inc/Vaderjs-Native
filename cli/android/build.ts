@@ -54,18 +54,24 @@ function patchPermissions(buildDir: string) {
 async function ensureLocalProperties(buildDir: string, sdkPath?: string) {
   const localPropsPath = path.join(buildDir, "local.properties");
 
-  if (existsSync(localPropsPath)) return;
-
+  // If the file already exists, skip 
+ 
+  // Determine SDK path if not passed in
   if (!sdkPath) {
-    const sdkInfo = findAndroidSdk();
+    const sdkInfo = findAndroidSdk(); 
     sdkPath = sdkInfo?.sdkPath;
     if (!sdkPath) throw new Error("Android SDK not found");
   }
 
-  const sdkDir = sdkPath.replace(/\\/g, "\\\\");
-  await fs.writeFile(localPropsPath, `sdk.dir=${sdkDir}\n`);
+  // Write local.properties with the proper sdk path
+  await fs.writeFile(
+    localPropsPath,
+    `sdk.dir=${sdkPath.replace(/\\/g, "\\\\")}\n`
+  ); 
+
   logger.success(`✅ Created local.properties → ${sdkPath}`);
 }
+
 
 async function copyDir(src: string, dest: string) {
   // Async recursive copy with explicit encoding handling
@@ -265,7 +271,7 @@ export async function addDeepLinks(buildDir: string) {
 export async function buildAndroid(isDev = false) {
   const config: Config = await loadConfig(process.cwd());
   const APP_ID = config.app?.id || "com.vaderjs.app";
-  const BUILD_SRC = await fetchBinary("android", pkg.version);
+  const BUILD_SRC = await fetchBinary("android", pkg.binaryVersion);
   const BUILD_DIR = path.join(process.cwd(), "build", "android-src", APP_ID);
 
   logger.step("🚀 Android Build");
@@ -286,6 +292,7 @@ export async function buildAndroid(isDev = false) {
 // 3️⃣ Rename package and patch MainActivity
   await renamePackage(BUILD_DIR, "myapp", APP_ID);
   
+  await ensureLocalProperties(BUILD_DIR);
   // Patch AndroidBridge.kt directly
   const bridgePath = path.join(BUILD_DIR, "app", "src", "main", "java", ...APP_ID.split("."), "AndroidBridge.kt");
   if (existsSync(bridgePath)) {
@@ -294,7 +301,7 @@ export async function buildAndroid(isDev = false) {
     ${bridgeContent}`;
     await fs.writeFile(bridgePath, bridgeContent, "utf8");
   }
-  
+   
   await patchMainActivity(BUILD_DIR, APP_ID, isDev, config);
   await patchGradleFiles(BUILD_DIR, APP_ID);
 
@@ -304,8 +311,7 @@ export async function buildAndroid(isDev = false) {
   // 5️⃣ Clean Gradle artifacts
   await removeDir(path.join(BUILD_DIR, "app", "build"));
 
-// 6️⃣ Local properties, permissions, meta, assets
-  await ensureLocalProperties(BUILD_DIR);
+// 6️⃣ Local properties, permissions, meta, assets 
   patchPermissions(BUILD_DIR);
   patchAppMeta(BUILD_DIR, config);
   await copyAssets(BUILD_DIR, APP_ID);
