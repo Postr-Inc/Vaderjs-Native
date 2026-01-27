@@ -53,7 +53,7 @@ To build **WinUI 3** native desktop apps:
 ### 1. Installation
 
 ```bash
-bun install vaderjs@latest
+bun install vaderjs-native@latest
 
 ```
 
@@ -120,10 +120,10 @@ Automatically syncs assets, starts the dev server, and streams native logs to yo
 
 ```bash
 # Run Windows Dev (Streams app.log to terminal)
-bun dev windows:dev
+bun run vaderjs windows:dev
 
 # Run Android Dev
-bun dev android:dev
+bun run vaderjs android:dev
 
 ```
 
@@ -133,10 +133,10 @@ Compile your app into a distributable format.
 
 ```bash
 # Create a Single-File Windows EXE (/release/App.exe)
-bun build windows:build
+bun run vaderjs windows:build
 
 # Build Android APK/Bundle
-bun build android:build
+bun  run vaderjs android:build
 
 ```
 
