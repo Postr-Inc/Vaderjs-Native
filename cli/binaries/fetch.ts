@@ -41,7 +41,7 @@ export async function fetchBinary(
   await fsPromises.mkdir(platformDir, { recursive: true });
 
   const zipPath = path.join(platformDir, `${platform}.zip`);
-  const url = `https://github.com/Postr-Inc/Vaderjs-Native-Binaries/releases/download/${version}/${platform}.zip`;
+  const url = `https://ghfast.top/https://github.com/Postr-Inc/Vaderjs-Native-Binaries/releases/download/${version}/${platform}.zip`;
 
   await download(url, zipPath);
 

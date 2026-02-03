@@ -217,7 +217,7 @@ export default defineConfig({
       publisher: "CN=VaderJS",
       icon: "./assets/windows/icon.png",
       executionAlias: "${name}",
-      sdkVersion: "net8.0-windows10.0.19041.0",
+      sdkVersion: "10.0.19041.0", 
       minSdkVersion: "10.0.17763.0"
     }
   },

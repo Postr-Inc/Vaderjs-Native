@@ -1,6 +1,6 @@
 {
     "name": "vaderjs-native",
-    "version": "1.0.26",
+    "version": "1.0.27",
     "binaryVersion":"1.0.25",
     "description": "Build Native Applications using Vaderjs framework.",
     "bin": {
