@@ -10,6 +10,7 @@ import { logger } from "../logger.js";
 import { loadConfig } from "../../main.js";
 import { Config } from "../../config/index.js";
 import { fetchBinary } from "../binaries/fetch.js";
+
 const PROJECT_ROOT = process.cwd();
 const DIST_DIR = path.join(PROJECT_ROOT, "dist");
 
@@ -30,16 +31,13 @@ function patchPermissions(buildDir: string) {
 
   let content = fsSync.readFileSync(manifestPath, "utf8");
 
-  // Remove existing permissions
   content = content.replace(/<uses-permission android:name="[^"]*" \/>/g, "");
 
-  // Add basic permissions
   const basePerms = [
     '    <uses-permission android:name="android.permission.INTERNET" />',
     '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />'
   ];
   
-  // Insert permissions before application tag
   const applicationIndex = content.indexOf("<application");
   if (applicationIndex !== -1) {
     const beforeApplication = content.substring(0, applicationIndex);
@@ -54,16 +52,12 @@ function patchPermissions(buildDir: string) {
 async function ensureLocalProperties(buildDir: string, sdkPath?: string) {
   const localPropsPath = path.join(buildDir, "local.properties");
 
-  // If the file already exists, skip 
- 
-  // Determine SDK path if not passed in
   if (!sdkPath) {
     const sdkInfo = findAndroidSdk(); 
     sdkPath = sdkInfo?.sdkPath;
     if (!sdkPath) throw new Error("Android SDK not found");
   }
 
-  // Write local.properties with the proper sdk path
   await fs.writeFile(
     localPropsPath,
     `sdk.dir=${sdkPath.replace(/\\/g, "\\\\")}\n`
@@ -72,9 +66,7 @@ async function ensureLocalProperties(buildDir: string, sdkPath?: string) {
   logger.success(`✅ Created local.properties → ${sdkPath}`);
 }
 
-
 async function copyDir(src: string, dest: string) {
-  // Async recursive copy with explicit encoding handling
   const entries = await fs.readdir(src, { withFileTypes: true });
   await fs.mkdir(dest, { recursive: true });
   await Promise.all(entries.map(async (entry) => {
@@ -83,7 +75,6 @@ async function copyDir(src: string, dest: string) {
     if (entry.isDirectory()) {
       await copyDir(srcPath, destPath);
     } else {
-      // For .kt files, read and write to ensure encoding is preserved
       if (entry.name.endsWith('.kt')) {
         const content = await fs.readFile(srcPath, "utf8");
         await fs.writeFile(destPath, content, "utf8");
@@ -94,25 +85,6 @@ async function copyDir(src: string, dest: string) {
   }));
 }
 
-async function patchAllKotlinFiles(javaDir: string, APP_ID: string) {
-  async function patchDir(dir: string) {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    await Promise.all(entries.map(async (entry) => {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await patchDir(fullPath);
-      } else if (entry.name.endsWith('.kt')) {
-        let content = await fs.readFile(fullPath, "utf8");
-        content = content.replace(/package \{\{APP_PACKAGE\}\}/g, `package ${APP_ID}`);
-        await fs.writeFile(fullPath, content, "utf8");
-      }
-    }));
-  }
-  
-  await patchDir(javaDir);
-  logger.success("✅ All Kotlin files patched with package name");
-}
-
 async function removeDir(dir: string) {
   if (existsSync(dir)) {
     try {
@@ -120,7 +92,6 @@ async function removeDir(dir: string) {
     } catch (error: any) {
       if (error.code === 'EBUSY') {
         logger.warn(`⚠️ Directory ${dir} is busy, retrying...`);
-        // Wait and retry
         await new Promise(resolve => setTimeout(resolve, 1000));
         try {
           await fs.rm(dir, { recursive: true, force: true });
@@ -145,7 +116,6 @@ async function patchMainActivity(buildDir: string, APP_ID: string, isDev: boolea
 
   let content = await fs.readFile(mainActivityPath, "utf8");
 
-  // Replace package declaration
   content = content.replace(/package \{\{APP_PACKAGE\}\}/g, `package ${APP_ID}`);
 
   const baseUrl = isDev
@@ -156,19 +126,6 @@ async function patchMainActivity(buildDir: string, APP_ID: string, isDev: boolea
   content = content.replace(/\{\{BASE_URL\}\}/g, baseUrl);
   await fs.writeFile(mainActivityPath, content, "utf8");
   logger.success(`✅ MainActivity patched → ${baseUrl} (${isDev ? "DEV" : "PROD"} mode)`);
-}
-
-async function patchAndroidBridge(buildDir: string, APP_ID: string) {
-  const javaDir = path.join(buildDir, "app", "src", "main", "java");
-  const packageDir = path.join(javaDir, ...APP_ID.split("."));
-  const bridgePath = path.join(packageDir, "AndroidBridge.kt");
-
-  if (!existsSync(bridgePath)) return;
-
-  let content = await fs.readFile(bridgePath, "utf8");
-  content = content.replace(/package \{\{APP_PACKAGE\}\}/g, `package ${APP_ID}`);
-  await fs.writeFile(bridgePath, content, "utf8");
-  logger.success("✅ AndroidBridge patched");
 }
 
 async function copyAssets(buildDir: string, APP_ID: string) {
@@ -196,7 +153,6 @@ async function renamePackage(buildDir: string, oldPackage: string, newPackage: s
     return;
   }
   
-  // Create parent directory first
   await fs.mkdir(path.dirname(newDir), { recursive: true });
   
   if (existsSync(newDir)) {
@@ -223,12 +179,10 @@ function patchAppMeta(buildDir: string, config: Config) {
 
   let content = fsSync.readFileSync(manifestPath, "utf8");
   
-  // Update app name and label if provided
   if (config.app?.name) {
     content = content.replace(/android:label="[^"]*"/, `android:label="${config.app.name}"`);
   }
   
-  // Update version info if provided
   if (config.app?.version) {
     content = content.replace(/android:versionCode="[^"]*"/, `android:versionCode="${config.app.version.code}"`);
     content = content.replace(/android:versionName="[^"]*"/, `android:versionName="${config.app.version.name}"`);
@@ -277,30 +231,35 @@ export async function buildAndroid(isDev = false) {
   logger.step("🚀 Android Build");
   ensureAndroidInstalled();
 
-  // FIX: Remove the duplicate mkdir call
-// 1️⃣ Clean old build folder with retry
+  // 1️⃣ Clean old build folder
   try {
     await removeDir(BUILD_DIR);
   } catch (error) {
     logger.warn(`⚠️ Could not clean build directory, continuing...`);
   }
-  // DON'T call mkdir here - it will be created by copyDir later
 
-  // 2️⃣ Copy template asynchronously
+  // 2️⃣ Copy template
   await copyDir(BUILD_SRC, BUILD_DIR);
 
-// 3️⃣ Rename package and patch MainActivity
+  // 3️⃣ Rename package and patch files
   await renamePackage(BUILD_DIR, "myapp", APP_ID);
   
   await ensureLocalProperties(BUILD_DIR);
+  
   // Patch AndroidBridge.kt directly
-  const bridgePath = path.join(BUILD_DIR, "app", "src", "main", "java", ...APP_ID.split("."), "AndroidBridge.kt");
-  if (existsSync(bridgePath)) {
+const bridgePath = path.join(BUILD_DIR, "app", "src", "main", "java", ...APP_ID.split("."), "AndroidBridge.kt");
+if (existsSync(bridgePath)) {
     let bridgeContent = await fs.readFile(bridgePath, "utf8");
-    bridgeContent = `package ${APP_ID} 
-    ${bridgeContent}`;
+    
+    // Remove any existing package declaration
+    bridgeContent = bridgeContent.replace(/^package\s+[^\n]+\n/, '');
+    
+    // Add correct package declaration at the beginning
+    bridgeContent = `package ${APP_ID}\n\n${bridgeContent}`;
+    
     await fs.writeFile(bridgePath, bridgeContent, "utf8");
-  }
+    logger.success("✅ AndroidBridge patched with package name");
+}
    
   await patchMainActivity(BUILD_DIR, APP_ID, isDev, config);
   await patchGradleFiles(BUILD_DIR, APP_ID);
@@ -311,7 +270,7 @@ export async function buildAndroid(isDev = false) {
   // 5️⃣ Clean Gradle artifacts
   await removeDir(path.join(BUILD_DIR, "app", "build"));
 
-// 6️⃣ Local properties, permissions, meta, assets 
+  // 6️⃣ Apply patches and copy assets
   patchPermissions(BUILD_DIR);
   patchAppMeta(BUILD_DIR, config);
   await copyAssets(BUILD_DIR, APP_ID);
@@ -320,30 +279,75 @@ export async function buildAndroid(isDev = false) {
     await addDeepLinks(BUILD_DIR);
   }
 
-  // 7️⃣ Gradle build
+  // 7️⃣ Gradle build - FIXED: Use Bun.spawn instead of Node's spawn
   let gradleCmd = process.platform === "win32"
     ? path.join(BUILD_DIR, "gradlew.bat")
     : path.join(BUILD_DIR, "gradlew");
   
-  if (!existsSync(gradleCmd)) gradleCmd = "gradle";
+  // Check if gradlew exists
+  if (!existsSync(gradleCmd)) {
+    logger.error(`❌ Gradle wrapper not found at: ${gradleCmd}`);
+    logger.info("⚠️ Trying to use system gradle...");
+    gradleCmd = "gradle";
+  } else {
+    logger.info(`✅ Found gradlew at: ${gradleCmd}`);
+  }
 
-  logger.info("⚙️ Running Gradle assembleDebug (--no-daemon)...");
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(gradleCmd, ["assembleDebug", "--no-daemon"], {
+  logger.info("⚙️ Running Gradle assembleDebug...");
+  
+  // Use Bun.spawn which handles paths better
+  try {
+    const proc = Bun.spawn([gradleCmd, "assembleDebug", "--no-daemon"], {
       cwd: BUILD_DIR,
-      stdio: "inherit",
-      shell: true
+      stdout: "inherit",
+      stderr: "inherit",
+      stdin: "inherit"
     });
-    proc.on("exit", code => (code === 0 ? resolve() : reject(new Error(`❌ Gradle failed (${code})`))));
-    proc.on("error", reject);
-  });
 
-  // 8️⃣ Cleanup lingering Java processes
+    const exitCode = await proc.exited;
+    
+    if (exitCode !== 0) {
+      throw new Error(`❌ Gradle failed with exit code ${exitCode}`);
+    }
+    
+    logger.success("✅ Gradle build completed successfully");
+  } catch (error: any) {
+    logger.error(`❌ Failed to run Gradle: ${error.message}`);
+    
+    // Fallback: try using cmd /c for Windows
+    if (process.platform === "win32") {
+      logger.info("🔄 Trying fallback method with cmd /c...");
+      try {
+        const cmd = `cd /d "${BUILD_DIR}" && "${gradleCmd}" assembleDebug --no-daemon`;
+        logger.info(`📝 Running: ${cmd}`);
+        
+        const proc = Bun.spawn(["cmd", "/c", cmd], {
+          stdout: "inherit",
+          stderr: "inherit",
+          stdin: "inherit"
+        });
+
+        const exitCode = await proc.exited;
+        
+        if (exitCode !== 0) {
+          throw new Error(`❌ Fallback also failed with exit code ${exitCode}`);
+        }
+        
+        logger.success("✅ Gradle build completed with fallback method");
+      } catch (fallbackError: any) {
+        throw new Error(`❌ All Gradle build attempts failed: ${fallbackError.message}`);
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  // 8️⃣ Cleanup Java processes if needed
   try {
     if (process.platform === "win32") {
-      execSync("taskkill /F /IM java.exe /T", { stdio: "ignore" });
+      execSync("taskkill /F /IM java.exe /T 2>nul", { stdio: "ignore" });
     } else {
-      execSync("pkill -f java", { stdio: "ignore" });
+      execSync("pkill -f java 2>/dev/null", { stdio: "ignore" });
     }
   } catch {}
 
@@ -351,7 +355,6 @@ export async function buildAndroid(isDev = false) {
   const APK_SRC = path.join(BUILD_DIR, "app", "build", "outputs", "apk", "debug", "app-debug.apk");
   const APK_DEST_DIR = path.join(PROJECT_ROOT, "build");
   
-  // FIX: Use existsSync check before mkdir
   if (!existsSync(APK_DEST_DIR)) {
     await fs.mkdir(APK_DEST_DIR, { recursive: true });
   }
@@ -359,7 +362,14 @@ export async function buildAndroid(isDev = false) {
   const APK_DEST = path.join(APK_DEST_DIR, `${APP_ID}-debug.apk`);
 
   if (!existsSync(APK_SRC)) {
-    throw new Error(`❌ APK not found after build at: ${APK_SRC}`);
+    // Try alternative APK location
+    const altApkPath = path.join(BUILD_DIR, "app", "build", "outputs", "apk", "debug", "app-debug.apk");
+    if (existsSync(altApkPath)) {
+      await fs.copyFile(altApkPath, APK_DEST);
+      logger.success(`✅ APK ready → ${APK_DEST}`);
+      return APK_DEST;
+    }
+    throw new Error(`❌ APK not found after build. Checked: ${APK_SRC}`);
   }
   
   await fs.copyFile(APK_SRC, APK_DEST);

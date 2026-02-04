@@ -1,7 +1,7 @@
 {
     "name": "vaderjs-native",
-    "version": "1.0.30",
-    "binaryVersion":"1.0.26",
+    "version": "1.0.31",
+    "binaryVersion": "1.0.26",
     "description": "Build Native Applications using Vaderjs framework.",
     "bin": {
         "vaderjs": "./main.ts"
@@ -11,8 +11,8 @@
         "url": "https://github.com/Postr-Inc/Vaderjs-Native"
     },
     "license": "MIT",
-    "dependencies": {  
+    "dependencies": {
         "vaderjs-types": "latest",
-        "extract-zip":"latest"
-    } 
+        "extract-zip": "latest"
+    }
 }

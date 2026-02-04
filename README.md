@@ -1,4 +1,3 @@
-```markdown
 # VaderNative
 
 **VaderNative** is a high-performance, reactive framework for building truly native cross-platform applications. It combines a familiar React-like developer experience with a "Native-First" philosophy—streaming logs to your terminal, bundling single-file executables, and maintaining a zero-Virtual-DOM overhead.
