@@ -4,7 +4,258 @@
     dialogResolver = null;
   }
 };
+window.nativeHttpCallbacks = {}; 
 
+window.nativeHttpResponse = (response) => {
+    const callback = window.nativeHttpCallbacks[response.id];
+    if (callback) {
+        callback(response);
+        delete window.nativeHttpCallbacks[response.id]; // Only delete the specific ID
+    }
+};
+
+// Add these near the top of your file (after imports)
+let isDev = false;
+let globalErrorHandler: ((error: Error, componentStack?: string) => void) | null = null;
+
+// Enable dev mode automatically in web environment
+if (typeof window !== 'undefined') {
+  // Check for dev mode (you could also check URL or localStorage)
+  isDev = window.location.hostname === 'localhost' || 
+           window.location.hostname === '127.0.0.1' || 
+           window.location.protocol === 'http:';
+}
+
+// Error Boundary Component
+export function ErrorBoundary({ 
+  children, 
+  fallback,
+  onError 
+}: { 
+  children: VNode | VNode[];
+  fallback?: (error: Error, reset: () => void) => VNode;
+  onError?: (error: Error, errorInfo: { componentStack: string }) => void;
+}): VNode | null {
+  const [error, setError] = useState<Error | null>(null);
+  const [errorInfo, setErrorInfo] = useState<{ componentStack: string } | null>(null);
+
+  const resetError = () => {
+    setError(null);
+    setErrorInfo(null);
+  };
+
+  // Listen for global errors
+  useEffect(() => {
+    const originalHandler = globalErrorHandler;
+    globalErrorHandler = (error: Error, componentStack?: string) => {
+      setError(error);
+      if (componentStack) {
+        setErrorInfo({ componentStack });
+      }
+      if (onError) {
+        onError(error, { componentStack: componentStack || '' });
+      }
+    };
+    
+    return () => {
+      globalErrorHandler = originalHandler;
+    };
+  }, [onError]);
+
+  if (error) {
+    if (fallback) {
+      return fallback(error, resetError);
+    }
+    
+    return createElement(
+      "div",
+      {
+        style: {
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: '#1a1a1a',
+          color: '#fff',
+          padding: '20px',
+          fontFamily: 'monospace',
+          overflow: 'auto',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column'
+        }
+      },
+      createElement("h1", { style: { 
+        color: '#ff6b6b',
+        marginBottom: '20px',
+        fontSize: '24px'
+      } }, "⚠️ VaderJS Error"),
+      
+      createElement("div", { style: { 
+        backgroundColor: '#2a2a2a', 
+        padding: '15px', 
+        borderRadius: '5px',
+        marginBottom: '10px',
+        overflow: 'auto'
+      } }, 
+        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap' } }, 
+          error.toString() + (error.stack ? '\n\nStack trace:\n' + error.stack : '')
+        )
+      ),
+      
+      errorInfo && createElement("div", { style: { 
+        backgroundColor: '#2a2a2a', 
+        padding: '15px', 
+        borderRadius: '5px',
+        marginBottom: '10px',
+        overflow: 'auto'
+      } }, 
+        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' } }, 
+          "Component stack:\n" + errorInfo.componentStack
+        )
+      ),
+      
+      createElement("div", { style: { display: 'flex', gap: '10px', marginTop: '20px' } },
+        createElement("button", {
+          style: {
+            backgroundColor: '#ff6b6b',
+            color: 'white',
+            border: 'none',
+            padding: '10px 20px',
+            borderRadius: '5px',
+            cursor: 'pointer',
+            fontSize: '14px'
+          },
+          onClick: () => {
+            resetError();
+            // Force re-render of the app
+            if (currentRoot) {
+              wipRoot = {
+                dom: currentRoot.dom,
+                props: currentRoot.props,
+                alternate: currentRoot,
+              };
+              deletions = [];
+              nextUnitOfWork = wipRoot;
+              requestAnimationFrame(workLoop);
+            }
+          }
+        }, "Try Again"),
+        
+        isDev && createElement("button", {
+          style: {
+            backgroundColor: '#4a90e2',
+            color: 'white',
+            border: 'none',
+            padding: '10px 20px',
+            borderRadius: '5px',
+            cursor: 'pointer',
+            fontSize: '14px'
+          },
+          onClick: () => {
+            // Copy error to clipboard
+            const errorText = error.toString() + (error.stack ? '\n\n' + error.stack : '') + 
+                             (errorInfo ? '\n\nComponent stack:\n' + errorInfo.componentStack : '');
+            navigator.clipboard.writeText(errorText).then(() => {
+              showToast('Error copied to clipboard', 2000);
+            });
+          }
+        }, "Copy Error")
+      )
+    );
+  }
+
+  return children as VNode;
+}
+
+// Hook for error boundaries
+export function useErrorBoundary(): {
+  error: Error | null;
+  resetError: () => void;
+} {
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (globalErrorHandler) {
+      const originalHandler = globalErrorHandler;
+      globalErrorHandler = (error: Error) => {
+        setError(error);
+        originalHandler(error);
+      };
+      return () => {
+        globalErrorHandler = originalHandler;
+      };
+    }
+  }, []);
+
+  const resetError = () => setError(null);
+
+  return { error, resetError };
+}
+
+// Error reporting function
+export function reportError(error: Error, componentStack?: string) {
+  if (isDev) {
+    console.error('[VaderJS Error]', error);
+    if (componentStack) {
+      console.error('[VaderJS Component Stack]', componentStack);
+    }
+    
+    // Display error in UI for Android/Windows where console might not be visible
+    if (platform() !== 'web') {
+      if (globalErrorHandler) {
+        globalErrorHandler(error, componentStack);
+      } else {
+        // Fallback: Show toast
+        showToast(`Error: ${error.message}`, 5000);
+      }
+    }
+  } else {
+    // In production, you might want to log errors to a service
+    console.error(error);
+  }
+}
+
+// Wrap the render function with error handling
+export function renderWithErrorBoundary(element: VNode, container: Node) {
+  const wrappedElement = createElement(ErrorBoundary, {
+    fallback: (error: Error, reset: () => void) => {
+      return createElement(
+        "div",
+        { style: { 
+          padding: '20px',
+          backgroundColor: '#f8d7da',
+          color: '#721c24',
+          border: '1px solid #f5c6cb',
+          borderRadius: '5px',
+          margin: '20px'
+        }},
+        createElement("h3", { style: { marginTop: 0 } }, "App Error"),
+        createElement("pre", { style: { 
+          backgroundColor: '#f5f5f5',
+          padding: '10px',
+          borderRadius: '3px',
+          overflow: 'auto'
+        }}, error.toString()),
+        createElement("button", {
+          onClick: reset,
+          style: {
+            backgroundColor: '#721c24',
+            color: 'white',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            marginTop: '10px'
+          }
+        }, "Reload App")
+      );
+    }
+  }, element);
+
+  render(wrappedElement, container);
+}
 let isWriting = false;
 
 // Handle the "beforeunload" event to stop reloads
@@ -16,6 +267,87 @@ if (typeof window !== "undefined") {
       e.returnValue = '';
     }
   });
+}
+export function navigate(path) {
+  history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+/**
+ * Native HTTP function for making HTTP requests via the native layer.
+ * @param options 
+ * @returns  Promise<{status: number, body: any}>
+ */
+export async function nativeHttp(options: {
+    url: string,
+    method?: string,
+    headers?: Record<string, string>,
+    body?: any
+}): Promise<{ status: number, body: any }> {
+    const id = Math.random().toString(36).substring(2);
+    const platformName = platform(); // "android", "windows", "web"
+
+    return new Promise<any>((resolve, reject) => {
+        if (platformName === "android" && window.Android) {
+            
+            // 2. Register this specific request's resolver
+            window.nativeHttpCallbacks[id] = (response) => {
+                if (response.success) {
+                    let parsedBody = response.body;
+                    try { parsedBody = JSON.parse(response.body); } catch {}
+                    resolve({ status: response.status, body: parsedBody });
+                } else {
+                    reject(new Error(response.error || "HTTP Request Failed"));
+                }
+            };
+
+            const request = {
+                id,
+                url: options.url,
+                method: options.method ?? "GET",
+                headers: options.headers ?? {},
+                body: options.body ? JSON.stringify(options.body) : null
+            };
+            
+            window.Android.nativeHttp(JSON.stringify(request));
+            return;
+        }
+
+        if (platformName === "windows" && isWebView) {
+            function handler(event: any) {
+                const data = event.data;
+                if (data.id === id) {
+                    window.chrome.webview.removeEventListener("message", handler);
+                    data.data.body = JSON.parse(data.data.body);
+                    if (data.error) reject(new Error(data.error));
+                    else resolve(data.data);
+                }
+            }
+            window.chrome.webview.addEventListener("message", handler);
+
+            window.chrome.webview.postMessage({
+                command: "http",
+                id,
+                url: options.url,
+                method: options.method ?? "GET",
+                headers: options.headers ?? {},
+                body: options.body ?? null
+            });
+            return;
+        }
+
+        // Web fallback
+        fetch(options.url, {
+            method: options.method ?? "GET",
+            headers: options.headers,
+            body: options.body ? JSON.stringify(options.body) : undefined
+        })
+        .then(async res => {
+            const contentType = res.headers.get("Content-Type") || "";
+            const body = contentType.includes("application/json") ? await res.json() : await res.text();
+            resolve({ status: res.status, body });
+        })
+        .catch(reject);
+    });
 }
 
 /**
@@ -58,353 +390,7 @@ let deletions: Fiber[] | null = null;
 let wipFiber: Fiber | null = null;
 let hookIndex = 0;
 let isRenderScheduled = false;
-/**
-* FocusManager - Handles D-pad navigation and focus management
-*/
-class FocusManager {
-  constructor() {
-    this.focusableSelectors = [
-      'button',
-      'a[href]',
-      'input',
-      'select',
-      'textarea',
-      '[tabindex]',
-      '[role="button"]',
-      '[role="menuitem"]',
-      '[role="tab"]',
-      '[role="option"]',
-      '[contenteditable="true"]'
-    ];
-    this.currentFocusIndex = -1;
-    this.focusableElements = [];
-    this.isEnabled = true;
-    this.debug = false;
-
-    this.init();
-  }
-
-  init() {
-    // Listen for the keyboard events dispatched by onNativeKey
-    document.addEventListener('keydown', this.handleKeyDown.bind(this));
-
-    // Update focusable elements when DOM changes
-    this.observeDOMChanges();
-
-    // Initial focusable elements scan
-    this.updateFocusableElements();
-
-    // Try to focus first element by default
-    setTimeout(() => {
-      if (this.focusableElements.length > 0) {
-        this.setFocusIndex(0);
-      }
-    }, 100);
-
-    // Debug visualization
-    if (this.debug) {
-      this.addDebugStyles();
-    }
-  }
-
-  handleKeyDown(event) {
-    if (!this.isEnabled) return;
-
-    const key = event.key;
-
-    switch (key) {
-      case 'ArrowUp':
-        event.preventDefault();
-        this.navigate(-1, 'vertical');
-        break;
-      case 'ArrowDown':
-        event.preventDefault();
-        this.navigate(1, 'vertical');
-        break;
-      case 'ArrowLeft':
-        event.preventDefault();
-        this.navigate(-1, 'horizontal');
-        break;
-      case 'ArrowRight':
-        event.preventDefault();
-        this.navigate(1, 'horizontal');
-        break;
-      case 'Enter':
-        event.preventDefault();
-        this.activateCurrentElement();
-        break;
-      case 'Back':
-        event.preventDefault();
-        this.handleBackButton();
-        break;
-    }
-  }
-
-  updateFocusableElements() {
-    const allElements = Array.from(document.querySelectorAll(this.focusableSelectors.join(',')));
-
-    // Filter elements that are visible and not disabled
-    this.focusableElements = allElements.filter(el => {
-      const style = window.getComputedStyle(el);
-      const isVisible = style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.opacity !== '0';
-      const isEnabled = !el.disabled && el.getAttribute('aria-disabled') !== 'true';
-      const hasTabIndex = el.tabIndex !== -1 || el.hasAttribute('tabindex');
-
-      return isVisible && isEnabled && (hasTabIndex || this.isFocusableByDefault(el));
-    });
-
-    // Sort by visual position (top-to-bottom, left-to-right)
-    this.focusableElements.sort((a, b) => {
-      const rectA = a.getBoundingClientRect();
-      const rectB = b.getBoundingClientRect();
-
-      if (Math.abs(rectA.top - rectB.top) < 10) {
-        return rectA.left - rectB.left;
-      }
-      return rectA.top - rectB.top;
-    });
-
-    // Update current focus index if current element still exists
-    if (this.currentFocusIndex >= 0) {
-      const currentElement = this.getCurrentElement();
-      if (currentElement) {
-        this.currentFocusIndex = this.focusableElements.indexOf(currentElement);
-      }
-    }
-
-    if (this.currentFocusIndex === -1 && this.focusableElements.length > 0) {
-      this.currentFocusIndex = 0;
-    }
-
-    if (this.debug) {
-      this.highlightFocusableElements();
-    }
-  }
-
-  isFocusableByDefault(element) {
-    return ['button', 'a[href]', 'input', 'select', 'textarea'].some(selector =>
-      element.matches(selector)
-    );
-  }
-
-  navigate(direction, orientation) {
-    if (this.focusableElements.length === 0) return;
-
-    const currentElement = this.getCurrentElement();
-    if (!currentElement && this.focusableElements.length > 0) {
-      this.setFocusIndex(0);
-      return;
-    }
-
-    const currentIndex = this.focusableElements.indexOf(currentElement);
-    const currentRect = currentElement.getBoundingClientRect();
-
-    let bestCandidate = null;
-    let bestScore = Infinity;
-
-    this.focusableElements.forEach((element, index) => {
-      if (index === currentIndex) return;
-
-      const rect = element.getBoundingClientRect();
-      let score = 0;
-
-      if (orientation === 'vertical') {
-        const verticalDistance = direction > 0 ?
-          rect.top - currentRect.bottom :
-          currentRect.top - rect.bottom;
-
-        const horizontalDistance = Math.abs((rect.left + rect.right) / 2 -
-          (currentRect.left + currentRect.right) / 2);
-
-        if (verticalDistance < 0) return; // Wrong direction
-
-        // Prioritize elements directly below/above, then consider horizontal alignment
-        score = verticalDistance + horizontalDistance * 0.3;
-      } else { // horizontal
-        const horizontalDistance = direction > 0 ?
-          rect.left - currentRect.right :
-          currentRect.left - rect.right;
-
-        const verticalDistance = Math.abs((rect.top + rect.bottom) / 2 -
-          (currentRect.top + currentRect.bottom) / 2);
-
-        if (horizontalDistance < 0) return; // Wrong direction
-
-        // Prioritize elements directly right/left, then consider vertical alignment
-        score = horizontalDistance + verticalDistance * 0.3;
-      }
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestCandidate = index;
-      }
-    });
-
-    // If no candidate found in primary direction, try opposite direction
-    if (bestCandidate === null && this.focusableElements.length > 1) {
-      const nextIndex = (currentIndex + direction + this.focusableElements.length) %
-        this.focusableElements.length;
-      bestCandidate = nextIndex;
-    }
-
-    if (bestCandidate !== null) {
-      this.setFocusIndex(bestCandidate);
-    }
-  }
-
-  setFocusIndex(index) {
-    if (index < 0 || index >= this.focusableElements.length) return;
-
-    this.currentFocusIndex = index;
-    const element = this.focusableElements[index];
-
-    // Remove focus from all elements
-    this.focusableElements.forEach(el => {
-      el.classList.remove('focused', 'dpad-focused');
-      el.removeAttribute('data-focused');
-    });
-
-    // Add focus to current element
-    element.classList.add('focused', 'dpad-focused');
-    element.setAttribute('data-focused', 'true');
-    element.focus();
-
-    // Scroll into view if needed
-    element.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-      inline: 'center'
-    });
-
-    // Dispatch custom event
-    element.dispatchEvent(new CustomEvent('dpadfocus', {
-      bubbles: true,
-      detail: { element, index }
-    }));
-
-    if (this.debug) {
-      console.log('Focused element:', element, 'Index:', index);
-    }
-  }
-
-  getCurrentElement() {
-    return this.focusableElements[this.currentFocusIndex];
-  }
-
-  activateCurrentElement() {
-    const element = this.getCurrentElement();
-    if (!element) return;
-
-    // Trigger appropriate action based on element type
-    if (element.tagName === 'A' || element.tagName === 'BUTTON') {
-      element.click();
-    } else if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-      // Already focused, just ensure it's active
-      element.focus();
-    } else {
-      // Generic click for other focusable elements
-      element.click();
-    }
-  }
-
-  handleBackButton() {
-    // Dispatch global back event
-    document.dispatchEvent(new CustomEvent('dpadback', {
-      bubbles: true
-    }));
-
-    // Or go back in history
-    if (window.history.length > 1) {
-      window.history.back();
-    }
-  }
-
-  observeDOMChanges() {
-    // Use MutationObserver to update focusable elements when DOM changes
-    const observer = new MutationObserver(() => {
-      this.updateFocusableElements();
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'class', 'hidden', 'disabled', 'tabindex']
-    });
-
-    // Also update on resize and scroll
-    window.addEventListener('resize', () => this.updateFocusableElements());
-    window.addEventListener('scroll', () => this.updateFocusableElements());
-  }
-
-  // Debug methods
-  addDebugStyles() {
-    const style = document.createElement('style');
-    style.textContent = `
-      .dpad-focused {
-        outline: 3px solid #4CAF50 !important;
-        outline-offset: 2px !important;
-        box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.3) !important;
-        transition: outline 0.2s ease;
-      }
-      
-      .focus-highlight {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        color: white;
-        padding: 10px;
-        border-radius: 5px;
-        font-family: monospace;
-        z-index: 9999;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  highlightFocusableElements() {
-    // Remove existing highlights
-    document.querySelectorAll('.focus-highlight').forEach(el => el.remove());
-
-    // Add highlight element
-    const highlight = document.createElement('div');
-    highlight.className = 'focus-highlight';
-    highlight.textContent = `Focusable: ${this.focusableElements.length} | Current: ${this.currentFocusIndex}`;
-    document.body.appendChild(highlight);
-  }
-
-  // Public API
-  enable() {
-    this.isEnabled = true;
-  }
-
-  disable() {
-    this.isEnabled = false;
-  }
-
-  focusFirst() {
-    if (this.focusableElements.length > 0) {
-      this.setFocusIndex(0);
-    }
-  }
-
-  focusLast() {
-    if (this.focusableElements.length > 0) {
-      this.setFocusIndex(this.focusableElements.length - 1);
-    }
-  }
-
-  focusElement(element) {
-    const index = this.focusableElements.indexOf(element);
-    if (index !== -1) {
-      this.setFocusIndex(index);
-    }
-  }
-}
-
+ 
 
 
 interface Fiber {
@@ -512,6 +498,182 @@ function isSvgElement(fiber: Fiber): boolean {
   return false;
 }
 
+const isWebView =
+  typeof window !== "undefined" &&
+  window.chrome &&
+  window.chrome.webview &&
+  typeof window.chrome.webview.postMessage === "function";
+
+/* ─────────────────────────────── */
+/* WebView2 implementation */
+/* ─────────────────────────────── */
+
+function createWebViewSecureStore() {
+  return {
+    async sendCommand(subcommand, key, value) {
+      return new Promise((resolve, reject) => {
+        const id = Math.random().toString(36).slice(2);
+
+        function handler(event) {
+          const data = event.data;
+          if (data?.id === id) {
+            window.chrome.webview.removeEventListener("message", handler);
+            data.error ? reject(new Error(data.error)) : resolve(data.data);
+          }
+        }
+
+        window.chrome.webview.addEventListener("message", handler);
+
+        const payload = { command: "secureStore", id, subcommand };
+        if (key !== undefined) payload.key = key;
+        if (value !== undefined) payload.value = value;
+
+        window.chrome.webview.postMessage(payload);
+      });
+    },
+
+    set(key, value) {
+      return this.sendCommand("set", key, value);
+    },
+
+    get(key) {
+      return this.sendCommand("get", key);
+    },
+
+    delete(key) {
+      return this.sendCommand("delete", key);
+    },
+
+    clear() {
+      return this.sendCommand("clear");
+    },
+
+    getAll() {
+      return this.sendCommand("getAll");
+    },
+
+    isAvailable() {
+      return this.sendCommand("isAvailable");
+    }
+  };
+}
+
+/* ─────────────────────────────── */
+/* Browser fallback polyfill */
+/* ─────────────────────────────── */
+
+function createBrowserSecureStore() {
+  const prefix = "__vader_secure__";
+  console.warn(`[Vader.js] Warning: Using browser localStorage as a fallback for secure storage. This is not secure and should only be used for development purposes. should
+    you need security, please handle any sensitive data on the backend `);
+
+  return {
+    async set(key, value) {
+      localStorage.setItem(prefix + key, JSON.stringify(value));
+      return true;
+    },
+
+    async get(key) {
+      const raw = localStorage.getItem(prefix + key);
+      return raw ? JSON.parse(raw) : null;
+    },
+
+    async delete(key) {
+      localStorage.removeItem(prefix + key);
+      return true;
+    },
+
+    async clear() {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith(prefix))
+        .forEach(k => localStorage.removeItem(k));
+      return true;
+    },
+
+    async getAll() {
+      const out = {};
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith(prefix)) {
+          out[key.replace(prefix, "")] = JSON.parse(localStorage.getItem(key));
+        }
+      }
+      return out;
+    },
+
+    async isAvailable() {
+      return true;
+    }
+  };
+}
+
+/* ─────────────────────────────── */
+/* Public export */
+/* ─────────────────────────────── */
+
+function createAndroidSecureStore() {
+    return {
+        async set(key: string, value: any) {
+            try {
+                const result = window.Android.secureStoreSet(key, JSON.stringify(value));
+                return result === true || result === "true";
+            } catch (err) {
+                console.error("Android secureStore set error:", err);
+                return false;
+            }
+        },
+        async get(key: string) {
+            try {
+                const result = window.Android.secureStoreGet(key);
+                return result ? JSON.parse(result) : null;
+            } catch (err) {
+                console.error("Android secureStore get error:", err);
+                return null;
+            }
+        },
+        async delete(key: string) {
+            try {
+                const result = window.Android.secureStoreDelete(key);
+                return result === true || result === "true";
+            } catch (err) {
+                console.error("Android secureStore delete error:", err);
+                return false;
+            }
+        },
+        async clear() {
+            try {
+                const result = window.Android.secureStoreClear();
+                return result === true || result === "true";
+            } catch (err) {
+                console.error("Android secureStore clear error:", err);
+                return false;
+            }
+        },
+        async getAll() {
+            try {
+                const result = window.Android.secureStoreGetAll();
+                return result ? JSON.parse(result) : {};
+            } catch (err) {
+                console.error("Android secureStore getAll error:", err);
+                return {};
+            }
+        },
+        async isAvailable() {
+            return typeof window.Android?.secureStoreSet === "function";
+        }
+    };
+}
+
+// Final export
+export const secureStore = (() => {
+    if (typeof window !== "undefined") {
+        if (platform() === "android" && window.Android?.secureStoreSet) {
+            return createAndroidSecureStore();
+        }
+        if (isWebView) return createWebViewSecureStore();
+        return createBrowserSecureStore();
+    }
+    return createBrowserSecureStore();
+})();
 
 /**
  * Applies updated props to a DOM node.
@@ -663,6 +825,7 @@ function commitDeletion(fiber: Fiber | null): void {
     commitDeletion(fiber.child);
   }
 }
+ 
 
 /**
  * Renders a virtual DOM element into a container.
@@ -735,7 +898,65 @@ function performUnitOfWork(fiber: Fiber): Fiber | null {
   }
   return null;
 }
-
+function getComponentStack(fiber: Fiber): string {
+  const stack: string[] = [];
+  let currentFiber: Fiber | null = fiber;
+  
+  while (currentFiber) {
+    if (currentFiber.type) {
+      const name = typeof currentFiber.type === 'function' 
+        ? currentFiber.type.name || 'AnonymousComponent'
+        : String(currentFiber.type);
+      stack.push(name);
+    }
+    currentFiber = currentFiber.parent;
+  }
+  
+  return stack.reverse().join(' → ');
+}
+export const DevTools = {
+  enable: () => {
+    isDev = true;
+    localStorage.setItem('vader-dev-mode', 'true');
+    console.log('[VaderJS] Dev mode enabled');
+  },
+  
+  disable: () => {
+    isDev = false;
+    localStorage.removeItem('vader-dev-mode');
+    console.log('[VaderJS] Dev mode disabled');
+  },
+  
+  isEnabled: () => isDev,
+  
+  // Force error for testing
+  throwTestError: (message = 'Test error from DevTools') => {
+    throw new Error(message);
+  },
+  
+  // Get component tree
+  getComponentTree: () => {
+    const tree: any[] = [];
+    let fiber: Fiber | null = currentRoot;
+    
+    function traverse(fiber: Fiber | null, depth = 0) {
+      if (!fiber) return;
+      
+      tree.push({
+        depth,
+        type: typeof fiber.type === 'function' ? fiber.type.name : fiber.type,
+        props: fiber.props,
+        key: fiber.key
+      });
+      
+      traverse(fiber.child, depth + 1);
+      traverse(fiber.sibling, depth);
+    }
+    
+    traverse(fiber);
+    return tree;
+  }
+};
 /**
  * Updates a function component fiber.
  * @param {Fiber} fiber - The function component fiber to update.
@@ -745,15 +966,49 @@ function updateFunctionComponent(fiber: Fiber) {
   hookIndex = 0;
   fiber.hooks = fiber.alternate?.hooks || [];
 
-  // Directly call the component function without memoization
-  // The 'createComponent' call is removed.
-  const children = [(fiber.type as Function)(fiber.props)]
-    .flat()
-    .filter(child => child != null && typeof child !== 'boolean')
-    .map(child => typeof child === 'object' ? child : createTextElement(child));
+  let children;
+  try {
+    // Track component stack for better error reporting
+    const componentStack = getComponentStack(fiber);
+    
+    // Wrap component execution with error boundary
+    if (isDev) {
+      children = [(fiber.type as Function)(fiber.props)]
+        .flat()
+        .filter(child => child != null && typeof child !== 'boolean')
+        .map(child => typeof child === 'object' ? child : createTextElement(child));
+    } else {
+      children = [(fiber.type as Function)(fiber.props)]
+        .flat()
+        .filter(child => child != null && typeof child !== 'boolean')
+        .map(child => typeof child === 'object' ? child : createTextElement(child));
+    }
+  } catch (error) {
+    // Handle error in component
+    const componentStack = getComponentStack(fiber);
+    reportError(error as Error, componentStack);
+    
+    // Return error boundary or fallback UI
+    children = [createElement(
+      "div",
+      {
+        style: {
+          backgroundColor: '#fff3cd',
+          border: '1px solid #ffeaa7',
+          color: '#856404',
+          padding: '10px',
+          margin: '5px',
+          borderRadius: '4px',
+          fontSize: '14px'
+        }
+      },
+      `Component Error: ${(error as Error).message}`
+    )];
+  }
 
   reconcileChildren(fiber, children);
 }
+
 /**
  * Updates a host component fiber (DOM element).
  * @param {Fiber} fiber - The host component fiber to update.
@@ -994,9 +1249,10 @@ export function Match({ when, children }: { when: boolean, children: VNode[] }):
   return when ? children : null;
 }
 
-export function Show({ when, children }: { when: boolean, children: VNode[] }): VNode | null {
-  //@ts-ignore
-  return when ? children : null;
+export function Show({ when, children }: { when: boolean, children: VNode | VNode[] }): VNode | null {
+  if (!when) return null;
+
+  return children as VNode
 }
 /**
  * @description Show toast allows you to invoke system level toast api to show data to user
@@ -1196,6 +1452,10 @@ export const FS: FS = {
       if (currentPlatform === "android" && window.Android) {
         const result = window.Android.writeFile(path, content);
         return result === true || result === 'true';
+      }else {
+          // write to localStorage as fallback
+          localStorage.setItem(path, content);
+          return true;
       }
     } catch (error) {
       console.error('FS.writeFile error:', error);
@@ -1218,13 +1478,26 @@ export const FS: FS = {
       }
 
       if (currentPlatform === "android" && window.Android) {
-        const result = window.Android.readFile(path);
-        if (typeof result === 'boolean') return result ? 'true' : 'false';
-        return result || '';
+      const result = window.Android.readFile(path);
+      
+      if (typeof result === 'string') {
+        try {
+          const parsed = JSON.parse(result);
+          // If the native side returned an error object, treat it as a failure
+          if (parsed && parsed.error) {
+            throw new Error(parsed.error); 
+          }
+        } catch (e: any) {
+          // If it's the Error we just threw, rethrow it to the caller
+          if (e.message === "File not found") throw e;
+          // Otherwise, it was just normal file content that wasn't JSON, 
+          // which is fine, so we let it fall through to return result.
+        }
       }
+      return result || '';
+    }
     } catch (error) {
-      console.error('FS.readFile error:', error);
-      return "";
+      throw error;
     }
 
     return "";
@@ -1246,6 +1519,8 @@ export const FS: FS = {
           return result === true || result === 'true';
         }
         return await this.writeFile(path, '');
+      }else{
+          localStorage.removeItem(path);
       }
     } catch (error) {
       console.error('FS.deleteFile error:', error);
@@ -1276,6 +1551,9 @@ export const FS: FS = {
             return result ? [result] : [];
           }
         }
+      }else{
+         const keys = Object.keys(localStorage);
+         return keys;
       }
     } catch (error) {
       console.error('FS.listDir error:', error);
@@ -1293,11 +1571,19 @@ type DialogOptions = {
 };
 
 let dialogResolver: ((value: boolean) => void) | null = null;
-
-export function useDialog() {
+/**
+ * Use dialog hook for showing alert and confirm dialogs.
+ * @returns  {object} An object with alert and confirm methods.
+ */
+export function useDialog( ) {
   // ---- ANDROID IMPLEMENTATION ----
   if (typeof window !== "undefined" && (window as any).Android?.showDialog) {
     return {
+      /**
+       *  Show an alert dialog
+       * @param  options 
+       * @returns 
+       */
       alert({ title = "", message, okText = "OK" }: DialogOptions) {
         return new Promise<void>((resolve) => {
           dialogResolver = () => resolve();
@@ -1311,6 +1597,11 @@ export function useDialog() {
         });
       },
 
+      /**
+       *  Show a confirm dialog
+       * @param  options
+       * @returns 
+       */
       confirm({
         title = "",
         message,
@@ -1404,6 +1695,20 @@ export function useLayoutEffect(callback: Function, deps?: any[]): void {
 
   hook.deps = deps;
   hookIndex++;
+}
+ if (platform() === "windows") {
+  const block = (method: string) => {
+    return function () {
+      throw new Error(
+        `[Vader.js] localStorage.${method} is not supported on Windows. Use the FS API instead.`
+      );
+    };
+  };
+
+  localStorage.setItem = block("setItem") as any;
+  localStorage.getItem = block("getItem") as any;
+  localStorage.removeItem = block("removeItem") as any;
+  localStorage.clear = block("clear") as any;
 }
 
 /**
@@ -1673,6 +1978,16 @@ export function useQuery<T>(
   return { data, loading, error, refetch: fetchData };
 }
 
+export  function For<T>({
+  each,
+  children,
+}: {
+  each: T[];
+  children: (item: T, index: number) => VNode;
+}): VNode[] {
+  return each.map((item, index) => children(item, index));
+}
+
 /**
  * A hook for tracking window focus state.
  * @returns {boolean} True if the window is focused.
@@ -1874,8 +2189,16 @@ export function component<P extends object>( renderFn: (props: P) => VNode): (pr
   
   return ComponentWrapper;
 }
+export function Fragment({ children }: { children: VNode | VNode[] }): VNode | null {
+  // If children is an array, return them as-is
+  // If single child, return it
+  if (Array.isArray(children)) return children;
+  return children;
+}
 const Vader = {
   render,
+  renderWithErrorBoundary, // Add this new method
+  Fragment,
   createElement,
   useState,
   useEffect,
@@ -1898,7 +2221,14 @@ const Vader = {
   showToast,
   platform,
   component,
-  App
+  navigate,
+  nativeHttp,
+  For,
+  App,
+  ErrorBoundary,
+  useErrorBoundary,
+  reportError,
+  DevTools
 };
 
 Object.defineProperty(window, "Vader", {
@@ -1906,3 +2236,11 @@ Object.defineProperty(window, "Vader", {
   writable: false,
   configurable: false,
 });
+
+if (isDev) {
+  const originalRender = Vader.render;
+  Vader.render = function(element: VNode, container: Node) {
+    // Wrap in error boundary in dev mode
+    renderWithErrorBoundary(element, container);
+  };
+}

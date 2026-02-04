@@ -7,8 +7,8 @@ import path from "path";
 import { initProject  } from "./cli";
 import { logger, timedStep } from "./cli/logger";
 import { colors } from "./cli/logger";
-import runDevServer from "./cli/web/server";
-import { runProdServer } from "./cli/web/server";
+import runDevServer from "vaderjs-native/cli/web/server";
+import { runProdServer } from "vaderjs-native/cli/web/server";
 import { androidDev } from "./cli/android/dev.js";
 import { buildAndroid } from "./cli/android/build";
 import { buildWindows } from "./cli/windows/build";
@@ -17,7 +17,6 @@ import { Config } from "./config";
 
 // --- CONSTANTS ---
 const PROJECT_ROOT = process.cwd();
-const APP_DIR = path.join(PROJECT_ROOT, "app");
 const PUBLIC_DIR = path.join(PROJECT_ROOT, "public");
 const DIST_DIR = path.join(PROJECT_ROOT, "dist");
 const SRC_DIR = path.join(PROJECT_ROOT, "src");
@@ -32,15 +31,20 @@ let htmlInjections: string[] = [];
 
 // --- SIMPLIFIED WATCHER ---
 class FileWatcher {
+  private watchers: Map<string, any>;
+  private onChangeCallbacks: Array<(filePath: string) => void>;
+  private isRebuilding: boolean;
+  private lastRebuildTime: number;
+  private readonly REBUILD_COOLDOWN = 1000;
+
   constructor() {
     this.watchers = new Map();
     this.onChangeCallbacks = [];
     this.isRebuilding = false;
     this.lastRebuildTime = 0;
-    this.REBUILD_COOLDOWN = 1000; // 1 second cooldown between rebuilds
   }
 
-  shouldIgnorePath(filePath) {
+  shouldIgnorePath(filePath: string): boolean {
     const normalized = path.normalize(filePath);
     // Ignore dist folder and its contents
     if (normalized.includes(path.normalize(DIST_DIR))) {
@@ -61,7 +65,7 @@ class FileWatcher {
     return false;
   }
 
-  async watchDirectory(dirPath, recursive = true) {
+  async watchDirectory(dirPath: string, recursive = true): Promise<void> {
     // Skip if directory should be ignored
     if (this.shouldIgnorePath(dirPath) || !fsSync.existsSync(dirPath)) {
       return;
@@ -78,7 +82,7 @@ class FileWatcher {
       }
       
       // Create new watcher
-      const watcher = fsSync.watch(dirPath, { recursive }, (eventType, filename) => {
+      const watcher = fsSync.watch(dirPath, { recursive }, (eventType: string, filename: string | null) => {
         if (!filename) return;
         
         const changedFile = path.join(dirPath, filename);
@@ -105,26 +109,26 @@ class FileWatcher {
         }
       });
       
-      watcher.on('error', (err) => {
+      watcher.on('error', (err: Error) => {
         logger.warn(`Watcher error on ${dirPath}:`, err.message);
       });
       
       this.watchers.set(dirPath, watcher);
       
       logger.info(`Watching directory: ${path.relative(PROJECT_ROOT, dirPath)}`);
-    } catch (err) {
+    } catch (err: any) {
       logger.warn(`Could not watch directory ${dirPath}:`, err.message);
     }
   }
 
-  shouldTriggerRebuild(filePath) {
+  shouldTriggerRebuild(filePath: string): boolean {
     // Only trigger rebuild for specific file types
     const ext = path.extname(filePath).toLowerCase();
     const triggerExtensions = ['.js', '.jsx', '.ts', '.tsx', '.css', '.html', '.json', '.config.js', '.config.ts'];
     return triggerExtensions.includes(ext) || ext === '';
   }
 
-  triggerChange(filePath) {
+  triggerChange(filePath: string): void {
     for (const callback of this.onChangeCallbacks) {
       try {
         callback(filePath);
@@ -134,7 +138,7 @@ class FileWatcher {
     }
   }
 
-  onChange(callback) {
+  onChange(callback: (filePath: string) => void): () => void {
     this.onChangeCallbacks.push(callback);
     return () => {
       const index = this.onChangeCallbacks.indexOf(callback);
@@ -142,14 +146,14 @@ class FileWatcher {
     };
   }
 
-  setRebuilding(state) {
+  setRebuilding(state: boolean): void {
     this.isRebuilding = state;
     if (state) {
       this.lastRebuildTime = Date.now();
     }
   }
 
-  clear() {
+  clear(): void {
     for (const [dir, watcher] of this.watchers) {
       try {
         watcher.close();
@@ -207,7 +211,7 @@ export async function loadConfig(projectDir?: string): Promise<Config> {
   const configPathTs = path.join(projectDir, "vaderjs.config.ts");
   
   let configPath: string | null = null;
-  let stat: fs.Stats | null = null;
+  let stat: any = null;
   
   // Find which config file exists
   try {
@@ -259,6 +263,60 @@ async function runPluginHook(hookName: string): Promise<void> {
 }
 
 // --- OPTIMIZED BUILD HELPERS ---
+
+// Helper to find App.tsx in project root
+function findAppFile(): string | null {
+  const possiblePaths = [
+    path.join(PROJECT_ROOT, "App.tsx"),
+    path.join(PROJECT_ROOT, "App.jsx"),
+    path.join(PROJECT_ROOT, "App.ts"),
+    path.join(PROJECT_ROOT, "App.js")
+  ];
+  
+  for (const appPath of possiblePaths) {
+    if (fsSync.existsSync(appPath)) {
+      return appPath;
+    }
+  }
+  
+  return null;
+}
+
+// Helper to find route files in src/pages or src/routes
+async function findRouteFiles(): Promise<string[]> {
+  const routes: string[] = [];
+  
+  // Look for pages in src/pages or src/routes
+  const possibleDirs = [
+    path.join(PROJECT_ROOT, "src", "pages"),
+    path.join(PROJECT_ROOT, "src", "routes")
+  ];
+  
+  for (const dir of possibleDirs) {
+    if (fsSync.existsSync(dir)) {
+      await collectRouteFiles(dir, routes);
+    }
+  }
+  
+  return routes;
+}
+
+async function collectRouteFiles(dir: string, routes: string[]): Promise<void> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    
+    if (entry.isDirectory()) {
+      await collectRouteFiles(fullPath, routes);
+    } else if (entry.name.endsWith('.tsx') || entry.name.endsWith('.jsx')) {
+      // Check if it's a route component (not layout or other)
+      if (!entry.name.includes('.layout.') && !entry.name.includes('.component.')) {
+        routes.push(fullPath);
+      }
+    }
+  }
+}
 
 // File hashing for cache invalidation
 async function getFileHash(filepath: string): Promise<string> {
@@ -503,7 +561,7 @@ async function buildSrc(): Promise<void> {
       minify: false,
       plugins: [publicAssetPlugin()],
       external: ["vaderjs-native"],
-      splitting: false, // Disable splitting for better cacheability
+      splitting: false,
     });
   }
 }
@@ -546,152 +604,206 @@ async function copyPublicAssetsRecursive(srcDir: string, destDir: string): Promi
   });
 }
 
-async function buildAppEntrypoint(entryPath: string, name: string, isDev = false): Promise<void> {
-  const outDir = path.join(DIST_DIR, name === 'index' ? '' : name);
-  const outJsPath = path.join(outDir, 'index.js');
-  const outHtmlPath = path.join(outDir, 'index.html');
-  
-  // Check if rebuild is needed
-  if (!isDev && !(await needsRebuild(entryPath, outJsPath))) {
-    logger.info(`Entrypoint "${name}" is up to date`);
-    return;
-  }
-  
-  await fs.mkdir(outDir, { recursive: true });
-  
-  // --- CSS HANDLING ---
-  const cssLinks: string[] = [];
-  let content = await fs.readFile(entryPath, "utf8");
-  const cssImports = [...content.matchAll(/import\s+['"](.*\.css)['"]/g)];
-  
-  await parallelForEach(cssImports, async (match) => {
-    const cssImportPath = match[1];
-    const sourceCssPath = path.resolve(path.dirname(entryPath), cssImportPath);
-    
-    try {
-      await fs.access(sourceCssPath);
-      const relativeCssPath = path.relative(APP_DIR, sourceCssPath);
-      const destCssPath = path.join(DIST_DIR, relativeCssPath);
-      
-      await copyIfNeeded(sourceCssPath, destCssPath);
-      const htmlRelativePath = path.relative(outDir, destCssPath).replace(/\\/g, '/');
-      cssLinks.push(`<link rel="stylesheet" href="${htmlRelativePath}">`);
-    } catch {
-      logger.warn(`CSS file not found: ${sourceCssPath}`);
-    }
-  });
-  
-  // --- HTML GENERATION ---
-  const devClientScript = isDev
-    ? `<script>
-        const ws = new WebSocket("ws://" + location.host + "/__hmr");
-        ws.onmessage = (msg) => {
-          if (msg.data === "reload") location.reload();
-        };
-        ws.onclose = () => setTimeout(() => location.reload(), 1000);
-      </script>`
-    : "";
-  
-  const windowsStyle = globalThis.isBuildingForWindows ? `
-  <style>
-  .title-bar {
-    display: flex;
-    justify-content: space-between;
-    background: #111;
-    color: white;
-    -webkit-app-region: drag; 
-    height: 32px;
-  }
-  .title-bar button {
-    -webkit-app-region: no-drag; 
-  }
-  </style>` : '';
-  
-  const htmlContent = `<!DOCTYPE html>
+// --- SINGLE PAGE APPLICATION BUILD ---
+
+const devClientScript = `
+<script type="module">
+ // connect to ws server
+ // reload on changes
+ // 
+ const ws = new WebSocket('ws://' + location.host + '/__hmr');
+ ws.onmessage = (event) => {
+   const msg = event.data;
+   if (msg === 'reload') {
+     console.log('[VaderJS] Reloading due to changes...');
+     location.reload();
+   }
+ };
+</script>
+`;
+
+async function buildSPAHtml(): Promise<void> {
+  const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${config.app?.name || 'VaderJS App'} - ${name}</title>
-  ${cssLinks.join("\n  ")}
-  ${htmlInjections.join("\n  ")}
-  ${windowsStyle}
+  <title>${config.app?.name ?? "Vader App"}</title>
+  ${htmlInjections.join("\n")}
 </head>
 <body>
   <div id="app"></div>
-  <script src="./index.js"></script> 
+  <script src="/App.js " type="module"></script>
+  ${isDev ? devClientScript : ""}
 </body>
 </html>`;
+
+  await fs.writeFile(path.join(DIST_DIR, "index.html"), html);
+}
+
+async function buildRouteComponents(isDev: boolean): Promise<Record<string, string>> {
+  const routeFiles = await findRouteFiles();
+  const routeMap: Record<string, string> = {};
   
-  await fs.writeFile(outHtmlPath, htmlContent);
+  if (routeFiles.length === 0) {
+    logger.info("No route files found in src/pages or src/routes");
+    return routeMap;
+  }
   
-  // --- JS BUILD ---
+  // Create routes directory
+  const routesDir = path.join(DIST_DIR, "routes");
+  await fs.mkdir(routesDir, { recursive: true });
+  
+  // Build each route component separately
+  for (const routeFile of routeFiles) {
+    // Determine route path from file structure
+    const relativePath = path.relative(PROJECT_ROOT, routeFile);
+    let routePath = "/";
+    
+    // Convert file path to route path
+    // Example: src/pages/home/index.tsx -> /home
+    // Example: src/pages/about.tsx -> /about
+    if (relativePath.includes("src/pages/")) {
+      routePath = "/" + relativePath
+        .replace("src/pages/", "")
+        .replace(/\/index\.(tsx|jsx)$/, "")
+        .replace(/\.(tsx|jsx)$/, "")
+        .replace(/\/$/, "");
+    } else if (relativePath.includes("src/routes/")) {
+      routePath = "/" + relativePath
+        .replace("src/routes/", "")
+        .replace(/\/index\.(tsx|jsx)$/, "")
+        .replace(/\.(tsx|jsx)$/, "")
+        .replace(/\/$/, "");
+    }
+    
+    // Handle root route
+    if (routePath === "/index") routePath = "/";
+    
+    // Generate component name from route
+    const componentName = routePath === "/" ? "Home" : 
+      routePath.slice(1).split('/').map(part => 
+        part.charAt(0).toUpperCase() + part.slice(1)
+      ).join('');
+    
+    // Build the component
+    const outputFile = `${componentName}.js`;
+    const outputPath = path.join(routesDir, outputFile);
+    
+    await build({
+      entrypoints: [routeFile],
+      outdir: routesDir,
+      naming: { entry: componentName + ".js" },
+      target: "browser",
+      minify: !isDev,
+      sourcemap: isDev ? "inline" : "external",
+      jsxFactory: "Vader.createElement",
+      jsxFragment: "Fragment",
+      plugins: [publicAssetPlugin()],
+      external: ["vaderjs-native"],
+    });
+    
+    routeMap[routePath] = `./routes/${outputFile}`;
+  }
+  
+  return routeMap;
+}
+
+ 
+
+async function buildAppEntry(isDev: boolean): Promise<void> {
+  const appFile = findAppFile();
+  
+  if (!appFile) {
+    logger.error("No App.tsx or App.jsx found in project root!");
+    throw new Error("Missing App.tsx/App.jsx in project root");
+  }
+  
+  // Build the App component
   await build({
-    entrypoints: [entryPath],
-    outdir: outDir,
+    entrypoints: [appFile],
+    outdir: DIST_DIR,
     target: "browser",
     minify: !isDev,
     sourcemap: isDev ? "inline" : "external",
     jsxFactory: "Vader.createElement",
     jsxFragment: "Fragment",
+    naming: "App.js",
     plugins: [publicAssetPlugin()],
-    loader: {
-      '.js': 'jsx',
-      '.ts': 'tsx',
-      '.css': 'text',
-    },
-    define: isDev ? {
-      'process.env.NODE_ENV': '"development"'
-    } : {
-      'process.env.NODE_ENV': '"production"'
-    }
+    external: ["./routes.manifest.js"],
   });
-  
-  // --- FIX IMPORT PATHS IN JS ---
-  let jsContent = await fs.readFile(outJsPath, "utf8");
-  const vaderSource = await fs.readFile(VADER_SRC_PATH, "utf8");
-  
-  // Replace Vader import with actual source
-  jsContent = jsContent.replace(
-    /import\s+\*\s+as\s+Vader\s+from\s+['"]vaderjs['"];?/,
-    vaderSource
-  );
-  
-  await fs.writeFile(outJsPath, jsContent);
-  
-  // Update cache
-  const stat = await fs.stat(entryPath);
-  const hash = await getFileHash(entryPath);
-  buildCache.set(`${entryPath}:${outJsPath}`, { mtime: stat.mtimeMs, hash });
 }
 
-async function buildAppEntrypoints(isDev = false): Promise<void> {
-  if (!fsSync.existsSync(APP_DIR)) {
-    logger.warn("No '/app' directory found, skipping app entrypoint build.");
+async function buildMainRuntime(isDev: boolean): Promise<void> {
+  
+}
+
+async function buildSPA(isDev: boolean): Promise<void> {
+  logger.step("Building SPA");
+  
+  // 1. Generate single HTML file
+  await buildSPAHtml();
+  
+  // 2. Build route components separately
+  const routeMap = await buildRouteComponents(isDev);
+   
+  
+  // 4. Build App component
+  await buildAppEntry(isDev);
+  
+  // 5. Build main runtime that ties everything together
+  await buildMainRuntime(isDev);
+}
+
+async function buildMPA(isDev: boolean): Promise<void> {
+  logger.step("Building MPA (Single page with all routes bundled)");
+  
+  const appFile = findAppFile();
+  
+  if (!appFile) {
+    logger.warn("No App.tsx or App.jsx found for MPA mode.");
     return;
   }
   
-  await fs.mkdir(DIST_DIR, { recursive: true });
+  // For MPA, just bundle everything together
+  await buildSPAHtml();
   
-  // Find all index.jsx/tsx files in app directory
-  const entries = fsSync.readdirSync(APP_DIR, { recursive: true })
-    .filter(file => /index\.(jsx|tsx)$/.test(file))
-    .map(file => ({
-      name: path.dirname(file) === '.' ? 'index' : path.dirname(file).replace(/\\/g, '/'),
-      path: path.join(APP_DIR, file)
-    }));
+  // Build single bundle with all routes
+  await build({
+    entrypoints: [appFile],
+    outdir: DIST_DIR,
+    target: "browser",
+    minify: !isDev,
+    sourcemap: isDev ? "inline" : "external",
+    jsxFactory: "Vader.createElement",
+    jsxFragment: "Fragment",
+    naming: "index.js",
+    plugins: [publicAssetPlugin()],
+    external: [],
+  });
+}
 
-  for (const { name, path: entryPath } of entries) {
-    await buildAppEntrypoint(entryPath, name, isDev);
+async function buildAppEntrypoints(isDev = false): Promise<void> {
+  const appFile = findAppFile();
+  
+  if (!appFile) {
+    logger.warn("No App.tsx or App.jsx found in project root.");
+    return;
+  }
+  
+  if (config.build_type === "spa") {
+    await buildSPA(isDev);
+  } else {
+    await buildMPA(isDev);
   }
 }
 
 // --- MAIN BUILD FUNCTION ---
 export async function buildAll(isDev = false): Promise<void> {
-  config = await loadConfig()
+  config = await loadConfig();
   logger.info(`Starting VaderJS ${isDev ? 'development' : 'production'} build...`);
   const totalTime = performance.now();
-   
+  
   await runPluginHook("onBuildStart");
   
   // Clean dist directory only if not in dev mode or if it doesn't exist
@@ -706,14 +818,13 @@ export async function buildAll(isDev = false): Promise<void> {
       await fs.mkdir(DIST_DIR, { recursive: true });
     }
   }
-   
   
   // Run build steps in optimal order with parallelization where possible
   const buildSteps = [
     { name: "Building VaderJS Core", fn: buildVaderCore },
     { name: "Building App Source (/src)", fn: buildSrc },
     { name: "Copying Public Assets", fn: copyPublicAssets },
-    { name: "Building App Entrypoints (/app)", fn: () => buildAppEntrypoints(isDev) },
+    { name: "Building App Entrypoints", fn: () => buildAppEntrypoints(isDev) },
   ];
   
   for (const step of buildSteps) {
@@ -755,15 +866,6 @@ async function main(): Promise<void> {
   // Commands that don't require config
   if (command === "init") {
     await initProject(arg);
-    return;
-  }
-
-  if (command === "add") {
-    if (!arg) {
-      logger.error("Please specify a plugin to add.");
-      process.exit(1);
-    }
-    await addPlugin(arg);
     return;
   }
 
@@ -842,6 +944,30 @@ Available commands:
   windows:build  Build Windows app
     `.trim());
     process.exit(1);
+  }
+}
+
+// Stub functions for plugin management
+async function addPlugin(pluginName: string): Promise<void> {
+  logger.info(`Adding plugin: ${pluginName}`);
+  // TODO: Implement plugin addition
+  logger.warn("Plugin addition not yet implemented");
+}
+
+async function removePlugin(pluginName: string): Promise<void> {
+  logger.info(`Removing plugin: ${pluginName}`);
+  // TODO: Implement plugin removal
+  logger.warn("Plugin removal not yet implemented");
+}
+
+async function listPlugins(): Promise<void> {
+  logger.info("Currently installed plugins:");
+  if (config.plugins && config.plugins.length > 0) {
+    config.plugins.forEach((plugin, index) => {
+      logger.info(`  ${index + 1}. ${plugin.name || 'Unnamed plugin'}`);
+    });
+  } else {
+    logger.info("  No plugins installed.");
   }
 }
 
