@@ -27,7 +27,46 @@ if (typeof window !== 'undefined') {
 }
 
 // Error Boundary Component
+// Error Boundary Component - FIXED VERSION
 export function ErrorBoundary({ 
+  children, 
+  fallback,
+  onError 
+}: { 
+  children: VNode | VNode[];
+  fallback?: (error: Error, reset: () => void) => VNode;
+  onError?: (error: Error, errorInfo: { componentStack: string }) => void;
+}): VNode | null {
+  // We need to use try-catch because hooks can also throw errors
+  try {
+    // Move the hook calls into a separate component
+    return ErrorBoundaryInner({ children, fallback, onError });
+  } catch (error) {
+    // If hooks fail, render a simple fallback
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    if (fallback) {
+      return fallback(errorObj, () => window.location.reload());
+    }
+    
+    return createElement(
+      "div",
+      {
+        style: {
+          padding: '20px',
+          backgroundColor: '#f8d7da',
+          color: '#721c24',
+          border: '1px solid #f5c6cb',
+          borderRadius: '5px'
+        }
+      },
+      createElement("h3", {}, "Error Boundary Failed"),
+      createElement("pre", { style: { whiteSpace: 'pre-wrap' } }, errorObj.toString())
+    );
+  }
+}
+
+// Inner component that uses hooks
+function ErrorBoundaryInner({ 
   children, 
   fallback,
   onError 
@@ -44,21 +83,38 @@ export function ErrorBoundary({
     setErrorInfo(null);
   };
 
-  // Listen for global errors
   useEffect(() => {
-    const originalHandler = globalErrorHandler;
-    globalErrorHandler = (error: Error, componentStack?: string) => {
-      setError(error);
+    // Handle errors from children components
+    const handleError = (err: Error, componentStack?: string) => {
+      setError(err);
       if (componentStack) {
         setErrorInfo({ componentStack });
       }
       if (onError) {
-        onError(error, { componentStack: componentStack || '' });
+        onError(err, { componentStack: componentStack || '' });
       }
     };
-    
+
+    // Store the previous handler
+    const previousHandler = globalErrorHandler;
+    globalErrorHandler = handleError;
+
+    // Also catch unhandled errors and promise rejections
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      handleError(event.reason, 'Unhandled Promise Rejection');
+    };
+
+    const handleUncaughtError = (event: ErrorEvent) => {
+      handleError(event.error, 'Uncaught Error');
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleUncaughtError);
+
     return () => {
-      globalErrorHandler = originalHandler;
+      globalErrorHandler = previousHandler;
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleUncaughtError);
     };
   }, [onError]);
 
@@ -90,7 +146,7 @@ export function ErrorBoundary({
         color: '#ff6b6b',
         marginBottom: '20px',
         fontSize: '24px'
-      } }, "⚠️ VaderJS Error"),
+      } }, "⚠️ Application Error"),
       
       createElement("div", { style: { 
         backgroundColor: '#2a2a2a', 
@@ -838,7 +894,7 @@ export function render(element: VNode, container: Node): void {
   wipRoot = {
     dom: container,
     props: {
-      children: [element],
+      children:  isDev ? [createElement(ErrorBoundary, {}, element)] : [element],
     },
     alternate: currentRoot,
   };
@@ -2237,10 +2293,4 @@ Object.defineProperty(window, "Vader", {
   configurable: false,
 });
 
-if (isDev) {
-  const originalRender = Vader.render;
-  Vader.render = function(element: VNode, container: Node) {
-    // Wrap in error boundary in dev mode
-    renderWithErrorBoundary(element, container);
-  };
-}
+ 
