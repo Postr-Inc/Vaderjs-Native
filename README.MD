@@ -22,7 +22,7 @@ To build and run on Android, you need the **Android SDK**:
 # Add to your .bashrc, .zshrc, or Windows ENV
 ANDROID_HOME=$HOME/Android/Sdk
 PATH=$PATH:$ANDROID_HOME/platform-tools
-```
+
 
 ### 3. Windows Setup (Desktop)
 
@@ -208,4 +208,5 @@ VaderNative implements **Native Pipe & Log Tailing**.
 * **Hot Module Replacement:** Fast development with real-time updates
 * **Cross-Platform:** Build for web, Android, and Windows from the same codebase
  
+
  
