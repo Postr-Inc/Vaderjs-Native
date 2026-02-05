@@ -11,9 +11,7 @@ export interface Route {
 
 export interface RouteConfig {
   routes: Route[];
-  mode?: "hash" | "history";
-  base?: string;
-  fallback?: any; // Fallback component for 404
+  fallback?: any;
 }
 
 export interface RouteMatch {
@@ -28,406 +26,242 @@ class Router {
   private routeMap: Map<string, Route> = new Map();
   private currentMatch: RouteMatch | null = null;
   private listeners: Array<(match: RouteMatch | null) => void> = [];
-  private mode: "hash" | "history" = "history";
-  private base: string = "";
   private fallback: any = null;
-  private AppComponent: any = null;
+  private ready = false;
 
   constructor(config: RouteConfig) {
-    this.mode =  Vader.platform() === "web" ? (config.mode || "history") : "hash";
-    this.base = config.base || "";
-    this.fallback = config.fallback || null;
     this.routes = config.routes;
-    
-    // Build route map with nested routes
-    this.buildRouteMap(config.routes);
-    
-    // Initialize the router
+    this.fallback = config.fallback || null;
+
+    this.buildRouteMap(this.routes);
     this.initializeRouter();
   }
 
-  /**
-   * Set the root App component
-   */
-  public setAppComponent(App: any): void {
-    this.AppComponent = App;
-  }
+  /* ----------------------- ROUTE MAP ----------------------- */
 
-  /**
-   * Get the root App component
-   */
-  public getAppComponent(): any {
-    return this.AppComponent;
-  }
-
-  /**
-   * Recursively build route map including nested routes
-   */
-  private buildRouteMap(routes: Route[], parentPath: string = ""): void {
-    routes.forEach((route) => {
+  private buildRouteMap(routes: Route[], parentPath = ""): void {
+    routes.forEach(route => {
       const fullPath = this.normalizePath(parentPath + route.path);
       this.routeMap.set(fullPath, route);
-      
-      // Register children routes recursively
-      if (route.children && route.children.length > 0) {
+
+      if (route.children?.length) {
         this.buildRouteMap(route.children, fullPath);
       }
     });
   }
 
-  /**
-   * Normalize path
-   */
   private normalizePath(path: string): string {
     if (path === "/") return "/";
-    
-    // Remove duplicate slashes
-    let normalized = path.replace(/\/+/g, "/");
-    
-    // Ensure it doesn't end with slash (except root)
-    if (normalized !== "/" && normalized.endsWith("/")) {
-      normalized = normalized.slice(0, -1);
-    }
-    
-    // Ensure it starts with slash
-    if (!normalized.startsWith("/")) {
-      normalized = "/" + normalized;
-    }
-    
-    return normalized;
+    let p = path.replace(/\/+/g, "/");
+    if (!p.startsWith("/")) p = "/" + p;
+    if (p !== "/" && p.endsWith("/")) p = p.slice(0, -1);
+    return p;
   }
 
-  /**
-   * Match path against routes with dynamic parameters
-   */
+  /* ----------------------- MATCHING ----------------------- */
+
   private matchPath(path: string): RouteMatch | null {
-    const normalizedPath = this.normalizePath(path);
-    
-    // Try exact match first
-    const exactRoute = this.routeMap.get(normalizedPath);
-    if (exactRoute) {
+    const normalized = this.normalizePath(path);
+
+    const exact = this.routeMap.get(normalized);
+    if (exact) {
       return {
-        route: exactRoute,
-        path: normalizedPath,
+        route: exact,
+        path: normalized,
         params: {},
-        query: this.getQueryParams(),
+        query: this.getQueryParams()
       };
     }
-    
-    // Try pattern matching for dynamic routes
-    for (const [routePath, route] of this.routeMap.entries()) {
-      const match = this.matchPattern(routePath, normalizedPath);
+
+    for (const [pattern, route] of this.routeMap.entries()) {
+      const match = this.matchPattern(pattern, normalized);
       if (match) {
         return {
           route,
-          path: normalizedPath,
+          path: normalized,
           params: match.params,
-          query: this.getQueryParams(),
+          query: this.getQueryParams()
         };
       }
     }
-    
+
     return null;
   }
 
-  /**
-   * Match path pattern with parameters (e.g., /users/:id)
-   */
-  private matchPattern(pattern: string, path: string): { params: Record<string, string> } | null {
-    const patternParts = pattern.split("/");
-    const pathParts = path.split("/");
-    
-    if (patternParts.length !== pathParts.length) {
-      return null;
-    }
-    
+  private matchPattern(pattern: string, path: string) {
+    const p1 = pattern.split("/");
+    const p2 = path.split("/");
+
+    if (p1.length !== p2.length) return null;
+
     const params: Record<string, string> = {};
-    
-    for (let i = 0; i < patternParts.length; i++) {
-      const patternPart = patternParts[i];
-      const pathPart = pathParts[i];
-      
-      if (patternPart.startsWith(":")) {
-        // Dynamic segment
-        const paramName = patternPart.slice(1);
-        params[paramName] = decodeURIComponent(pathPart);
-      } else if (patternPart !== pathPart) {
-        // Static segment doesn't match
+
+    for (let i = 0; i < p1.length; i++) {
+      if (p1[i].startsWith(":")) {
+        params[p1[i].slice(1)] = decodeURIComponent(p2[i]);
+      } else if (p1[i] !== p2[i]) {
         return null;
       }
     }
-    
+
     return { params };
   }
 
-  /**
-   * Initialize router with event listeners
-   */
-private initializeRouter(): void {
-  if (typeof window === "undefined") return;
+  /* ----------------------- INIT ----------------------- */
 
-  // Handle back / forward
-  window.addEventListener("popstate", () => {
+  private initializeRouter(): void {
+    if (typeof window === "undefined") return;
+
+    window.addEventListener("hashchange", () => {
+      this.handleLocationChange();
+    });
+
     this.handleLocationChange();
-  });
+    this.ready = true;
+  }
 
-  // 🔥 PATCH pushState / replaceState
-  const originalPush = history.pushState;
-  const originalReplace = history.replaceState;
-
-  history.pushState = (...args) => {
-    originalPush.apply(history, args as any);
-    this.handleLocationChange();
-  };
-
-  history.replaceState = (...args) => {
-    originalReplace.apply(history, args as any);
-    this.handleLocationChange();
-  };
-
-  // Initial match
-  this.handleLocationChange();
-}
-
-
-  /**
-   * Handle location change
-   */
   private handleLocationChange(): void {
     const path = this.getCurrentPath();
     const match = this.matchPath(path);
-    
-    if (match) {
-      this.currentMatch = match;
-    } else {
-      this.currentMatch = null;
-    }
-    
-    // Notify all listeners
-    this.listeners.forEach((listener) => listener(this.currentMatch));
+    this.currentMatch = match;
+
+    this.listeners.forEach(l => l(this.currentMatch));
   }
 
-  /**
-   * Get current path from URL
-   */
   private getCurrentPath(): string {
     if (typeof window === "undefined") return "/";
-    
-    if (this.mode === "hash") {
-      return window.location.hash.slice(1) || "/";
-    } else {
-      let path = window.location.pathname;
-      
-      // Remove base path if configured
-      if (this.base && path.startsWith(this.base)) {
-        path = path.slice(this.base.length);
-      }
-      
-      return this.normalizePath(path) || "/";
-    }
+    return this.normalizePath(window.location.hash.slice(1) || "/");
   }
 
-  /**
-   * Navigate to a new path
-   */
+  /* ----------------------- NAVIGATION ----------------------- */
+
   public navigate(
     path: string,
-    options: {
-      replace?: boolean;
-      state?: any;
-      query?: Record<string, string>;
-    } = {}
+    options: { replace?: boolean; query?: Record<string, string> } = {}
   ): void {
-    const normalizedPath = this.normalizePath(path);
-    
-    // Build URL with query params
-    let url = normalizedPath;
-    if (options.query && Object.keys(options.query).length > 0) {
-      const queryString = new URLSearchParams(options.query).toString();
-      url += `?${queryString}`;
+    let url = this.normalizePath(path);
+
+    if (options.query && Object.keys(options.query).length) {
+      url += "?" + new URLSearchParams(options.query).toString();
     }
-    
-    if (typeof window !== "undefined") {
-      const fullUrl = this.mode === "hash" ? `#${url}` : this.base + url;
-      
-      if (options.replace) {
-        window.history.replaceState(options.state || {}, "", fullUrl);
-      } else {
-        window.history.pushState(options.state || {}, "", fullUrl);
-      }
-      
-      this.handleLocationChange();
+
+    const full = `#${url}`;
+
+    if (options.replace) {
+      window.location.replace(full);
+    } else {
+      window.location.hash = full;
     }
+    this.handleLocationChange()
   }
 
-  /**
-   * Subscribe to route changes
-   */
- public on(callback: (match: RouteMatch | null) => void): () => void {
-  this.listeners.push(callback);
+  /* ----------------------- SUBSCRIPTIONS ----------------------- */
 
-  // 🔥 Always emit current state (even null)
-  callback(this.currentMatch);
+  public on(cb: (match: RouteMatch | null) => void): () => void {
+    this.listeners.push(cb);
+    if (this.ready) cb(this.currentMatch);
 
-  return () => {
-    this.listeners = this.listeners.filter(l => l !== callback);
-  };
-}
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== cb);
+    };
+  }
 
+  /* ----------------------- HELPERS ----------------------- */
 
+  public isReady(): boolean {
+    return this.ready;
+  }
 
-  /**
-   * Get current route match
-   */
   public getCurrentMatch(): RouteMatch | null {
     return this.currentMatch;
   }
 
-  /**
-   * Get current route
-   */
   public getCurrentRoute(): Route | null {
     return this.currentMatch?.route || null;
   }
 
-  /**
-   * Get query parameters from URL
-   */
-  public getQueryParams(): Record<string, string> {
-    if (typeof window === "undefined") return {};
-    
-    const params: Record<string, string> = {};
-    const queryString = window.location.search.slice(1);
-    
-    if (!queryString) return params;
-    
-    queryString.split("&").forEach((param) => {
-      const [key, value] = param.split("=");
-      if (key) {
-        params[decodeURIComponent(key)] = decodeURIComponent(value || "");
-      }
-    });
-    
-    return params;
-  }
-
-  /**
-   * Check if a path is active
-   */
-  public isActive(path: string, exact: boolean = false): boolean {
-    const currentPath = this.currentMatch?.path || "/";
-    const normalizedPath = this.normalizePath(path);
-    
-    if (exact) {
-      return currentPath === normalizedPath;
-    }
-    
-    return currentPath.startsWith(normalizedPath);
-  }
-
-  /**
-   * Go back in history
-   */
-  public back(): void {
-    if (typeof window !== "undefined") {
-      window.history.back();
-    }
-  }
-
-  /**
-   * Go forward in history
-   */
-  public forward(): void {
-    if (typeof window !== "undefined") {
-      window.history.forward();
-    }
-  }
-
-  /**
-   * Get the fallback component for 404
-   */
   public getFallback(): any {
     return this.fallback;
   }
+
+  public getQueryParams(): Record<string, string> {
+    if (typeof window === "undefined") return {};
+    const params: Record<string, string> = {};
+    const qs = window.location.search.slice(1);
+    if (!qs) return params;
+
+    qs.split("&").forEach(p => {
+      const [k, v] = p.split("=");
+      if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    });
+
+    return params;
+  }
+
+  public isActive(path: string, exact = false): boolean {
+    const current = this.currentMatch?.path || "/";
+    const target = this.normalizePath(path);
+    return exact ? current === target : current.startsWith(target);
+  }
+
+  public back() {
+    window.history.back();
+  }
+
+  public forward() {
+    window.history.forward();
+  }
 }
 
-// Create a singleton instance
+/* ----------------------- SINGLETON ----------------------- */
+
 let routerInstance: Router | null = null;
 
-/**
- * Create and initialize router
- */
 export function createRouter(config: RouteConfig): Router {
   routerInstance = new Router(config);
   return routerInstance;
 }
 
-/**
- * Get router instance
- */
 export function useRouter(): Router {
   if (!routerInstance) {
-    throw new Error("Router not initialized. Call createRouter() first.");
+    throw new Error("Router not initialized");
   }
   return routerInstance;
 }
 
-/**
- * Hook for getting current route
- */
-export function useRoute(): RouteMatch | null {
+/* ----------------------- HOOKS ----------------------- */
+
+export function useRoute(): RouteMatch | null | "loading" {
   const router = useRouter();
-  const [match, setMatch] = Vader.useState<RouteMatch | null>(
-    router.getCurrentMatch()
+  const [match, setMatch] = Vader.useState<RouteMatch | null | "loading">(
+    router.isReady() ? router.getCurrentMatch() : "loading"
   );
-  
-  console.log("useRoute - current match:", match);
 
   Vader.useEffect(() => {
-    const unsubscribe = router.on((newMatch) => {
-      setMatch(newMatch);
-    });
-    
-    return unsubscribe;
+    return router.on(setMatch);
   }, []);
 
   return match;
 }
 
-/**
- * Hook for navigation
- */
 export function useNavigate() {
   const router = useRouter();
-  
-  return (
-    path: string,
-    options?: {
-      replace?: boolean;
-      state?: any;
-      query?: Record<string, string>;
-    }
-  ) => {
-    router.navigate(path, options);
-  };
+  return router.navigate.bind(router);
 }
 
-/**
- * Hook for checking active route
- */
-export function useActiveRoute(path: string, exact: boolean = false): boolean {
+export function useActiveRoute(path: string, exact = false): boolean {
   const router = useRouter();
-  const [isActive, setIsActive] = Vader.useState(() => router.isActive(path, exact));
+  const [active, setActive] = Vader.useState(
+    router.isActive(path, exact)
+  );
 
   Vader.useEffect(() => {
-    const unsubscribe = router.on(() => {
-      setIsActive(router.isActive(path, exact));
+    return router.on(() => {
+      setActive(router.isActive(path, exact));
     });
-    
-    return unsubscribe;
   }, [path, exact]);
 
-  return isActive;
+  return active;
 }
 
 export default Router;
