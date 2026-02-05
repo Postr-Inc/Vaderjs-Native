@@ -1280,36 +1280,46 @@ export function useEffect(callback: Function, deps?: any[]): void {
 
 /**
  * A switch component for conditional rendering.
- * @param {object} props - The component props.
- * @param {VNode[]} props.children - The child components.
- * @returns {VNode|null} The matched child or null.
+ * @param props.children - The child components (single or multiple).
+ * @returns The matched child or null.
  */
-export function Switch({ children }: { children: VNode[] }): VNode | null {
+export function Switch({ children }: { children?: VNode | VNode[] }): VNode | null {
+  if (!children) return null;
   const childrenArray = Array.isArray(children) ? children : [children];
-  const match = childrenArray.find(child => child && child.props.when);
-  if (match) {
-    return match;
-  }
-  return childrenArray.find(child => child && child.props.default) || null;
+  const match = childrenArray.find(child => child && child.props?.when);
+  if (match) return match;
+  return childrenArray.find(child => child && child.props?.default) || null;
 }
+ 
+ 
+ 
+
 
 /**
  * A match component for use with Switch.
- * @param {object} props - The component props.
- * @param {boolean} props.when - The condition to match.
- * @param {VNode[]} props.children - The child components.
- * @returns {VNode|null} The children if when is true, otherwise null.
+ * @param props.when - The condition to match.
+ * @param props.children - The child components (single or multiple).
+ * @returns The children if when is true, otherwise null.
  */
-export function Match({ when, children }: { when: boolean, children: VNode[] }): VNode | null {
-  //@ts-ignore
-  return when ? children : null;
+export function Match({ when, children }: { when: boolean; children?: VNode | VNode[] }): VNode | null {
+  if (!when || !children) return null;
+  const childrenArray = Array.isArray(children) ? children : [children];
+  return childrenArray.length === 1 ? childrenArray[0] : (childrenArray as unknown as VNode);
 }
 
-export function Show({ when, children }: { when: boolean, children: VNode | VNode[] }): VNode | null {
-  if (!when) return null;
 
-  return children as VNode
+/**
+ * A show component for conditional rendering.
+ * @param props.when - Whether to show the children.
+ * @param props.children - The child components (single or multiple).
+ * @returns The children if when is true, otherwise null.
+ */
+export function Show({ when, children }: { when: boolean; children?: VNode | VNode[] }): VNode | null {
+  if (!when || !children) return null;
+  const childrenArray = Array.isArray(children) ? children : [children];
+  return childrenArray.length === 1 ? childrenArray[0] : (childrenArray as unknown as VNode);
 }
+
 /**
  * @description Show toast allows you to invoke system level toast api to show data to user
  * @param message 
