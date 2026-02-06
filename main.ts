@@ -507,6 +507,30 @@ async function preprocessSources(srcDir: string, tempDir: string): Promise<void>
     }
   });
 }
+function absoluteAssetPlugin() {
+  return {
+    name: "absolute-asset-plugin",
+    setup(build) {
+      build.onLoad(
+        { filter: /\.(js|jsx|ts|tsx)$/ },
+        async (args) => {
+          let code = await Bun.file(args.path).text();
+
+          // Replace "./asset.ext" → "/asset.ext"
+          code = code.replace(
+            /(["'`])\.\/([^"'`]+\.(png|jpe?g|svg|webp|gif|avif))\1/g,
+            (_, quote, asset) => `${quote}/${asset}${quote}`
+          );
+
+          return {
+            contents: code,
+            loader: args.path.endsWith("x") ? "tsx" : "js",
+          };
+        }
+      );
+    },
+  };
+}
 
 /**
  * Step 4: Build the application's source code from the preprocessed temp directory
@@ -558,8 +582,17 @@ async function buildSrc(): Promise<void> {
       jsxFragment: "Fragment",
       jsxImportSource: "vaderjs-native",
       target: "browser",
+      publicPath: "/",
+      env: 'inline',
       minify: false,
-      plugins: [publicAssetPlugin()],
+        assetNaming: "assets/[name]-[hash].[ext]",
+      loader: {
+    '.png':  'file', 
+    '.svg': 'file',
+    '.txt': 'text',
+    '.json': 'json'
+  },
+       
       external: ["vaderjs-native"],
       splitting: false,
     });
@@ -698,6 +731,7 @@ async function buildRouteComponents(isDev: boolean): Promise<Record<string, stri
       minify: !isDev,
       sourcemap: isDev ? "inline" : "external",
       jsxFactory: "Vader.createElement",
+      env: 'inline',
       jsxFragment: "Fragment",
       plugins: [publicAssetPlugin()],
       external: ["vaderjs-native"],
@@ -728,6 +762,7 @@ async function buildAppEntry(isDev: boolean): Promise<void> {
     sourcemap: isDev ? "inline" : "external",
     jsxFactory: "Vader.createElement",
     jsxFragment: "Fragment",
+    env: "inline",
     naming: "App.js",
     plugins: [publicAssetPlugin()],
     external: ["./routes.manifest.js"],
