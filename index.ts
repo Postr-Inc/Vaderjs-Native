@@ -4,14 +4,14 @@
     dialogResolver = null;
   }
 };
-window.nativeHttpCallbacks = {}; 
+window.nativeHttpCallbacks = {};
 
 window.nativeHttpResponse = (response) => {
-    const callback = window.nativeHttpCallbacks[response.id];
-    if (callback) {
-        callback(response);
-        delete window.nativeHttpCallbacks[response.id]; // Only delete the specific ID
-    }
+  const callback = window.nativeHttpCallbacks[response.id];
+  if (callback) {
+    callback(response);
+    delete window.nativeHttpCallbacks[response.id]; // Only delete the specific ID
+  }
 };
 
 // Add these near the top of your file (after imports)
@@ -21,18 +21,18 @@ let globalErrorHandler: ((error: Error, componentStack?: string) => void) | null
 // Enable dev mode automatically in web environment
 if (typeof window !== 'undefined') {
   // Check for dev mode (you could also check URL or localStorage)
-  isDev = window.location.hostname === 'localhost' || 
-           window.location.hostname === '127.0.0.1' || 
-           window.location.protocol === 'http:';
+  isDev = window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.protocol === 'http:';
 }
 
 // Error Boundary Component
 // Error Boundary Component - FIXED VERSION
-export function ErrorBoundary({ 
-  children, 
+export function ErrorBoundary({
+  children,
   fallback,
-  onError 
-}: { 
+  onError
+}: {
   children: VNode | VNode[];
   fallback?: (error: Error, reset: () => void) => VNode;
   onError?: (error: Error, errorInfo: { componentStack: string }) => void;
@@ -47,7 +47,7 @@ export function ErrorBoundary({
     if (fallback) {
       return fallback(errorObj, () => window.location.reload());
     }
-    
+
     return createElement(
       "div",
       {
@@ -66,11 +66,11 @@ export function ErrorBoundary({
 }
 
 // Inner component that uses hooks
-function ErrorBoundaryInner({ 
-  children, 
+function ErrorBoundaryInner({
+  children,
   fallback,
-  onError 
-}: { 
+  onError
+}: {
   children: VNode | VNode[];
   fallback?: (error: Error, reset: () => void) => VNode;
   onError?: (error: Error, errorInfo: { componentStack: string }) => void;
@@ -122,7 +122,7 @@ function ErrorBoundaryInner({
     if (fallback) {
       return fallback(error, resetError);
     }
-    
+
     return createElement(
       "div",
       {
@@ -142,36 +142,42 @@ function ErrorBoundaryInner({
           flexDirection: 'column'
         }
       },
-      createElement("h1", { style: { 
-        color: '#ff6b6b',
-        marginBottom: '20px',
-        fontSize: '24px'
-      } }, "⚠️ Application Error"),
-      
-      createElement("div", { style: { 
-        backgroundColor: '#2a2a2a', 
-        padding: '15px', 
-        borderRadius: '5px',
-        marginBottom: '10px',
-        overflow: 'auto'
-      } }, 
-        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap' } }, 
+      createElement("h1", {
+        style: {
+          color: '#ff6b6b',
+          marginBottom: '20px',
+          fontSize: '24px'
+        }
+      }, "⚠️ Application Error"),
+
+      createElement("div", {
+        style: {
+          backgroundColor: '#2a2a2a',
+          padding: '15px',
+          borderRadius: '5px',
+          marginBottom: '10px',
+          overflow: 'auto'
+        }
+      },
+        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap' } },
           error.toString() + (error.stack ? '\n\nStack trace:\n' + error.stack : '')
         )
       ),
-      
-      errorInfo && createElement("div", { style: { 
-        backgroundColor: '#2a2a2a', 
-        padding: '15px', 
-        borderRadius: '5px',
-        marginBottom: '10px',
-        overflow: 'auto'
-      } }, 
-        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' } }, 
+
+      errorInfo && createElement("div", {
+        style: {
+          backgroundColor: '#2a2a2a',
+          padding: '15px',
+          borderRadius: '5px',
+          marginBottom: '10px',
+          overflow: 'auto'
+        }
+      },
+        createElement("pre", { style: { margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' } },
           "Component stack:\n" + errorInfo.componentStack
         )
       ),
-      
+
       createElement("div", { style: { display: 'flex', gap: '10px', marginTop: '20px' } },
         createElement("button", {
           style: {
@@ -194,11 +200,11 @@ function ErrorBoundaryInner({
               };
               deletions = [];
               nextUnitOfWork = wipRoot;
-              requestAnimationFrame(workLoop);
+              requestIdleCallback(workLoop);
             }
           }
         }, "Try Again"),
-        
+
         isDev && createElement("button", {
           style: {
             backgroundColor: '#4a90e2',
@@ -211,8 +217,8 @@ function ErrorBoundaryInner({
           },
           onClick: () => {
             // Copy error to clipboard
-            const errorText = error.toString() + (error.stack ? '\n\n' + error.stack : '') + 
-                             (errorInfo ? '\n\nComponent stack:\n' + errorInfo.componentStack : '');
+            const errorText = error.toString() + (error.stack ? '\n\n' + error.stack : '') +
+              (errorInfo ? '\n\nComponent stack:\n' + errorInfo.componentStack : '');
             navigator.clipboard.writeText(errorText).then(() => {
               showToast('Error copied to clipboard', 2000);
             });
@@ -257,7 +263,7 @@ export function reportError(error: Error, componentStack?: string) {
     if (componentStack) {
       console.error('[VaderJS Component Stack]', componentStack);
     }
-    
+
     // Display error in UI for Android/Windows where console might not be visible
     if (platform() !== 'web') {
       if (globalErrorHandler) {
@@ -279,21 +285,25 @@ export function renderWithErrorBoundary(element: VNode, container: Node) {
     fallback: (error: Error, reset: () => void) => {
       return createElement(
         "div",
-        { style: { 
-          padding: '20px',
-          backgroundColor: '#f8d7da',
-          color: '#721c24',
-          border: '1px solid #f5c6cb',
-          borderRadius: '5px',
-          margin: '20px'
-        }},
+        {
+          style: {
+            padding: '20px',
+            backgroundColor: '#f8d7da',
+            color: '#721c24',
+            border: '1px solid #f5c6cb',
+            borderRadius: '5px',
+            margin: '20px'
+          }
+        },
         createElement("h3", { style: { marginTop: 0 } }, "App Error"),
-        createElement("pre", { style: { 
-          backgroundColor: '#f5f5f5',
-          padding: '10px',
-          borderRadius: '3px',
-          overflow: 'auto'
-        }}, error.toString()),
+        createElement("pre", {
+          style: {
+            backgroundColor: '#f5f5f5',
+            padding: '10px',
+            borderRadius: '3px',
+            overflow: 'auto'
+          }
+        }, error.toString()),
         createElement("button", {
           onClick: reset,
           style: {
@@ -334,76 +344,76 @@ export function navigate(path) {
  * @returns  Promise<{status: number, body: any}>
  */
 export async function nativeHttp(options: {
-    url: string,
-    method?: string,
-    headers?: Record<string, string>,
-    body?: any
+  url: string,
+  method?: string,
+  headers?: Record<string, string>,
+  body?: any
 }): Promise<{ status: number, body: any }> {
-    const id = Math.random().toString(36).substring(2);
-    const platformName = platform(); // "android", "windows", "web"
+  const id = Math.random().toString(36).substring(2);
+  const platformName = platform(); // "android", "windows", "web"
 
-    return new Promise<any>((resolve, reject) => {
-        if (platformName === "android" && window.Android) {
-            
-            // 2. Register this specific request's resolver
-            window.nativeHttpCallbacks[id] = (response) => {
-                if (response.success) {
-                    let parsedBody = response.body;
-                    try { parsedBody = JSON.parse(response.body); } catch {}
-                    resolve({ status: response.status, body: parsedBody });
-                } else {
-                    reject(new Error(response.error || "HTTP Request Failed"));
-                }
-            };
+  return new Promise<any>((resolve, reject) => {
+    if (platformName === "android" && window.Android) {
 
-            const request = {
-                id,
-                url: options.url,
-                method: options.method ?? "GET",
-                headers: options.headers ?? {},
-                body: options.body ? JSON.stringify(options.body) : null
-            };
-            
-            window.Android.nativeHttp(JSON.stringify(request));
-            return;
+      // 2. Register this specific request's resolver
+      window.nativeHttpCallbacks[id] = (response) => {
+        if (response.success) {
+          let parsedBody = response.body;
+          try { parsedBody = JSON.parse(response.body); } catch { }
+          resolve({ status: response.status, body: parsedBody });
+        } else {
+          reject(new Error(response.error || "HTTP Request Failed"));
         }
+      };
 
-        if (platformName === "windows" && isWebView) {
-            function handler(event: any) {
-                const data = event.data;
-                if (data.id === id) {
-                    window.chrome.webview.removeEventListener("message", handler);
-                    data.data.body = JSON.parse(data.data.body);
-                    if (data.error) reject(new Error(data.error));
-                    else resolve(data.data);
-                }
-            }
-            window.chrome.webview.addEventListener("message", handler);
+      const request = {
+        id,
+        url: options.url,
+        method: options.method ?? "GET",
+        headers: options.headers ?? {},
+        body: options.body ? JSON.stringify(options.body) : null
+      };
 
-            window.chrome.webview.postMessage({
-                command: "http",
-                id,
-                url: options.url,
-                method: options.method ?? "GET",
-                headers: options.headers ?? {},
-                body: options.body ?? null
-            });
-            return;
+      window.Android.nativeHttp(JSON.stringify(request));
+      return;
+    }
+
+    if (platformName === "windows" && isWebView) {
+      function handler(event: any) {
+        const data = event.data;
+        if (data.id === id) {
+          window.chrome.webview.removeEventListener("message", handler);
+          data.data.body = JSON.parse(data.data.body);
+          if (data.error) reject(new Error(data.error));
+          else resolve(data.data);
         }
+      }
+      window.chrome.webview.addEventListener("message", handler);
 
-        // Web fallback
-        fetch(options.url, {
-            method: options.method ?? "GET",
-            headers: options.headers,
-            body: options.body ? JSON.stringify(options.body) : undefined
-        })
-        .then(async res => {
-            const contentType = res.headers.get("Content-Type") || "";
-            const body = contentType.includes("application/json") ? await res.json() : await res.text();
-            resolve({ status: res.status, body });
-        })
-        .catch(reject);
-    });
+      window.chrome.webview.postMessage({
+        command: "http",
+        id,
+        url: options.url,
+        method: options.method ?? "GET",
+        headers: options.headers ?? {},
+        body: options.body ?? null
+      });
+      return;
+    }
+
+    // Web fallback
+    fetch(options.url, {
+      method: options.method ?? "GET",
+      headers: options.headers,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    })
+      .then(async res => {
+        const contentType = res.headers.get("Content-Type") || "";
+        const body = contentType.includes("application/json") ? await res.json() : await res.text();
+        resolve({ status: res.status, body });
+      })
+      .catch(reject);
+  });
 }
 
 /**
@@ -446,7 +456,7 @@ let deletions: Fiber[] | null = null;
 let wipFiber: Fiber | null = null;
 let hookIndex = 0;
 let isRenderScheduled = false;
- 
+
 
 
 interface Fiber {
@@ -455,6 +465,7 @@ interface Fiber {
   props: {
     children: VNode[];
     [key: string]: any;
+    ref?: { current: any };
   };
   parent?: Fiber;
   child?: Fiber;
@@ -474,6 +485,7 @@ export interface VNode {
   props: {
     children: VNode[];
     [key: string]: any;
+    ref?: { current: any };
   };
   key?: string | number | null;
 }
@@ -534,12 +546,18 @@ function createDom(fiber: Fiber): Node {
       : document.createElement(fiber.type as string);
   }
 
-  // Assign ref if it exists
+  // Initialize ref to null first
+  if (fiber.props.ref) {
+    fiber.props.ref.current = null;
+  }
+
+  updateDom(dom, {}, fiber.props);
+  
+  // Now assign the DOM element to ref
   if (fiber.props.ref) {
     fiber.props.ref.current = dom;
   }
 
-  updateDom(dom, {}, fiber.props);
   return dom;
 }
 
@@ -574,7 +592,17 @@ function createWebViewSecureStore() {
           const data = event.data;
           if (data?.id === id) {
             window.chrome.webview.removeEventListener("message", handler);
-            data.error ? reject(new Error(data.error)) : resolve(data.data);
+            if (data.error) {
+              reject(new Error(data.error))
+            } else {
+              try {
+                resolve(JSON.parse(data.data));
+              } catch {
+                resolve(data.data); // plain string fallback
+              }
+            }
+
+
           }
         }
 
@@ -667,68 +695,68 @@ function createBrowserSecureStore() {
 /* ─────────────────────────────── */
 
 function createAndroidSecureStore() {
-    return {
-        async set(key: string, value: any) {
-            try {
-                const result = window.Android.secureStoreSet(key, JSON.stringify(value));
-                return result === true || result === "true";
-            } catch (err) {
-                console.error("Android secureStore set error:", err);
-                return false;
-            }
-        },
-        async get(key: string) {
-            try {
-                const result = window.Android.secureStoreGet(key);
-                return result ? JSON.parse(result) : null;
-            } catch (err) {
-                console.error("Android secureStore get error:", err);
-                return null;
-            }
-        },
-        async delete(key: string) {
-            try {
-                const result = window.Android.secureStoreDelete(key);
-                return result === true || result === "true";
-            } catch (err) {
-                console.error("Android secureStore delete error:", err);
-                return false;
-            }
-        },
-        async clear() {
-            try {
-                const result = window.Android.secureStoreClear();
-                return result === true || result === "true";
-            } catch (err) {
-                console.error("Android secureStore clear error:", err);
-                return false;
-            }
-        },
-        async getAll() {
-            try {
-                const result = window.Android.secureStoreGetAll();
-                return result ? JSON.parse(result) : {};
-            } catch (err) {
-                console.error("Android secureStore getAll error:", err);
-                return {};
-            }
-        },
-        async isAvailable() {
-            return typeof window.Android?.secureStoreSet === "function";
-        }
-    };
+  return {
+    async set(key: string, value: any) {
+      try {
+        const result = window.Android.secureStoreSet(key, JSON.stringify(value));
+        return result === true || result === "true";
+      } catch (err) {
+        console.error("Android secureStore set error:", err);
+        return false;
+      }
+    },
+    async get(key: string) {
+      try {
+        const result = window.Android.secureStoreGet(key);
+        return result ? JSON.parse(result) : null;
+      } catch (err) {
+        console.error("Android secureStore get error:", err);
+        return null;
+      }
+    },
+    async delete(key: string) {
+      try {
+        const result = window.Android.secureStoreDelete(key);
+        return result === true || result === "true";
+      } catch (err) {
+        console.error("Android secureStore delete error:", err);
+        return false;
+      }
+    },
+    async clear() {
+      try {
+        const result = window.Android.secureStoreClear();
+        return result === true || result === "true";
+      } catch (err) {
+        console.error("Android secureStore clear error:", err);
+        return false;
+      }
+    },
+    async getAll() {
+      try {
+        const result = window.Android.secureStoreGetAll();
+        return result ? JSON.parse(result) : {};
+      } catch (err) {
+        console.error("Android secureStore getAll error:", err);
+        return {};
+      }
+    },
+    async isAvailable() {
+      return typeof window.Android?.secureStoreSet === "function";
+    }
+  };
 }
 
 // Final export
 export const secureStore = (() => {
-    if (typeof window !== "undefined") {
-        if (platform() === "android" && window.Android?.secureStoreSet) {
-            return createAndroidSecureStore();
-        }
-        if (isWebView) return createWebViewSecureStore();
-        return createBrowserSecureStore();
+  if (typeof window !== "undefined") {
+    if (platform() === "android" && window.Android?.secureStoreSet) {
+      return createAndroidSecureStore();
     }
+    if (isWebView) return createWebViewSecureStore();
     return createBrowserSecureStore();
+  }
+  return createBrowserSecureStore();
 })();
 
 /**
@@ -737,11 +765,23 @@ export const secureStore = (() => {
  * @param {object} prevProps - The previous properties.
  * @param {object} nextProps - The new properties.
  */
-function updateDom(dom: Node, prevProps: any, nextProps: any): void {
+ function updateDom(dom: Node, prevProps: any, nextProps: any): void {
   prevProps = prevProps || {};
   nextProps = nextProps || {};
 
   const isSvg = dom instanceof SVGElement;
+
+  // Handle ref changes
+  if (prevProps.ref !== nextProps.ref) {
+    // Clear old ref
+    if (prevProps.ref) {
+      prevProps.ref.current = null;
+    }
+    // Set new ref
+    if (nextProps.ref) {
+      nextProps.ref.current = dom;
+    }
+  }
 
   // Remove old or changed event listeners
   Object.keys(prevProps)
@@ -763,6 +803,8 @@ function updateDom(dom: Node, prevProps: any, nextProps: any): void {
         (dom as Element).removeAttribute('class');
       } else if (name === 'style') {
         (dom as HTMLElement).style.cssText = '';
+      } else if (name === 'ref') {
+        // Already handled above
       } else {
         if (isSvg) {
           (dom as Element).removeAttribute(name);
@@ -788,6 +830,8 @@ function updateDom(dom: Node, prevProps: any, nextProps: any): void {
         }
       } else if (name === 'className' || name === 'class') {
         (dom as Element).setAttribute('class', nextProps[name]);
+      } else if (name === 'ref') {
+        // Already handled above
       } else {
         if (isSvg) {
           (dom as Element).setAttribute(name, nextProps[name]);
@@ -808,23 +852,9 @@ function updateDom(dom: Node, prevProps: any, nextProps: any): void {
         (dom as Element).addEventListener(eventType, handler);
       }
     });
-
-  Object.keys(nextProps)
-    .filter(isEvent)
-    .filter(isNew(prevProps, nextProps))
-    .forEach(name => {
-      const eventType = name.toLowerCase().substring(2);
-      const handler = nextProps[name];
-      if (typeof handler === 'function') {
-        // Remove old listener first if it exists
-        if (prevProps[name]) {
-          dom.removeEventListener(eventType, prevProps[name]);
-        }
-        // Add new listener with passive: true for better performance
-        dom.addEventListener(eventType, handler, { passive: true });
-      }
-    });
 }
+
+ 
 
 
 /**
@@ -855,6 +885,7 @@ function commitWork(fiber: Fiber | null): void {
 
   if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
     if (domParent) domParent.appendChild(fiber.dom);
+    // Ref already set in createDom
   } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
     updateDom(fiber.dom, fiber.alternate?.props ?? {}, fiber.props);
   } else if (fiber.effectTag === "DELETION") {
@@ -870,9 +901,13 @@ function commitWork(fiber: Fiber | null): void {
  * @param {Fiber} fiber - The fiber to remove.
  */
 function commitDeletion(fiber: Fiber | null): void {
-  if (!fiber) {
-    return;
+  if (!fiber) return;
+  
+  // Only clear ref if this is an actual deletion (not just an update)
+  if (fiber.effectTag === "DELETION" && fiber.props?.ref) {
+    fiber.props.ref.current = null;
   }
+  
   if (fiber.dom) {
     if (fiber.dom.parentNode) {
       fiber.dom.parentNode.removeChild(fiber.dom);
@@ -881,51 +916,104 @@ function commitDeletion(fiber: Fiber | null): void {
     commitDeletion(fiber.child);
   }
 }
- 
 
+var framesProcessed = 0;
 /**
  * Renders a virtual DOM element into a container.
  * @param {VNode} element - The root virtual DOM element to render.
  * @param {Node} container - The DOM container to render into.
  */
-export function render(element: VNode, container: Node): void {
+ export function render(element: VNode, container: Node): void {
   container.innerHTML = "";
-
+  
   wipRoot = {
     dom: container,
     props: {
-      children:  isDev ? [createElement(ErrorBoundary, {}, element)] : [element],
+      children: [element], // Remove ErrorBoundary wrapper for now to debug
     },
     alternate: currentRoot,
   };
   deletions = [];
   nextUnitOfWork = wipRoot;
-  requestAnimationFrame(workLoop);
+   
+  
+  // Force immediate start with requestAnimationFrame first,
+  // then continue with requestIdleCallback
+  requestAnimationFrame(() => {  
+    const startTime = performance.now();
+    
+    while (nextUnitOfWork && framesProcessed < 10 && performance.now() - startTime < 8) {
+      nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+      framesProcessed++;
+    } 
+    
+    if (!nextUnitOfWork && wipRoot) {
+      commitRoot(); 
+    }
+    
+    // Continue with requestIdleCallback
+    if (nextUnitOfWork || wipRoot) { 
+      requestIdleCallback(workLoop, { timeout: 100 });
+    }
+  });
 }
+
 
 /**
  * The main work loop for rendering and reconciliation.
  */
-function workLoop(): void {
-  if (!wipRoot && currentRoot) {
-    wipRoot = {
-      dom: currentRoot.dom,
-      props: currentRoot.props,
-      alternate: currentRoot,
-    };
-    deletions = [];
-    nextUnitOfWork = wipRoot;
-  }
+ let isRendering = false;
+let renderScheduled = false;
 
-  while (nextUnitOfWork) {
-    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-  }
-
-  if (!nextUnitOfWork && wipRoot) {
-    commitRoot();
+function scheduleRender() {
+  if (isRendering || renderScheduled) return;
+  
+  renderScheduled = true;
+  
+  // Try requestIdleCallback first
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback((deadline) => {
+      renderScheduled = false;
+      isRendering = true;
+      workLoop(deadline);
+      isRendering = false;
+    }, { timeout: 100 }); // Timeout ensures it runs even if idle time never comes
+  } else {
+    // Fallback to requestAnimationFrame
+    requestAnimationFrame(() => {
+      renderScheduled = false;
+      isRendering = true;
+      workLoop();
+      isRendering = false;
+    });
   }
 }
 
+function workLoop(deadline?: IdleDeadline): void {
+  // Process units of work
+  while (nextUnitOfWork && (!deadline || deadline.timeRemaining() > 1)) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+  }
+  
+  // If we finished all work, commit to DOM
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot();
+  }
+  
+  // If there's still work to do, schedule more
+  if (nextUnitOfWork || wipRoot) {
+    // Use a hybrid approach: requestIdleCallback with fallback
+    if (deadline) {
+      // We came from requestIdleCallback, use it again
+      requestIdleCallback(workLoop);
+    } else {
+      // We came from elsewhere, start with requestIdleCallback
+      requestIdleCallback(workLoop);
+    }
+  }
+}
+
+ 
 
 /**
  * Performs work on a single fiber unit.
@@ -957,17 +1045,17 @@ function performUnitOfWork(fiber: Fiber): Fiber | null {
 function getComponentStack(fiber: Fiber): string {
   const stack: string[] = [];
   let currentFiber: Fiber | null = fiber;
-  
+
   while (currentFiber) {
     if (currentFiber.type) {
-      const name = typeof currentFiber.type === 'function' 
+      const name = typeof currentFiber.type === 'function'
         ? currentFiber.type.name || 'AnonymousComponent'
         : String(currentFiber.type);
       stack.push(name);
     }
     currentFiber = currentFiber.parent;
   }
-  
+
   return stack.reverse().join(' → ');
 }
 export const DevTools = {
@@ -976,39 +1064,39 @@ export const DevTools = {
     localStorage.setItem('vader-dev-mode', 'true');
     console.log('[VaderJS] Dev mode enabled');
   },
-  
+
   disable: () => {
     isDev = false;
     localStorage.removeItem('vader-dev-mode');
     console.log('[VaderJS] Dev mode disabled');
   },
-  
+
   isEnabled: () => isDev,
-  
+
   // Force error for testing
   throwTestError: (message = 'Test error from DevTools') => {
     throw new Error(message);
   },
-  
+
   // Get component tree
   getComponentTree: () => {
     const tree: any[] = [];
     let fiber: Fiber | null = currentRoot;
-    
+
     function traverse(fiber: Fiber | null, depth = 0) {
       if (!fiber) return;
-      
+
       tree.push({
         depth,
         type: typeof fiber.type === 'function' ? fiber.type.name : fiber.type,
         props: fiber.props,
         key: fiber.key
       });
-      
+
       traverse(fiber.child, depth + 1);
       traverse(fiber.sibling, depth);
     }
-    
+
     traverse(fiber);
     return tree;
   }
@@ -1026,7 +1114,7 @@ function updateFunctionComponent(fiber: Fiber) {
   try {
     // Track component stack for better error reporting
     const componentStack = getComponentStack(fiber);
-    
+
     // Wrap component execution with error boundary
     if (isDev) {
       children = [(fiber.type as Function)(fiber.props)]
@@ -1043,7 +1131,7 @@ function updateFunctionComponent(fiber: Fiber) {
     // Handle error in component
     const componentStack = getComponentStack(fiber);
     reportError(error as Error, componentStack);
-    
+
     // Return error boundary or fallback UI
     children = [createElement(
       "div",
@@ -1086,59 +1174,54 @@ function reconcileChildren(wipFiber: Fiber, elements: VNode[]) {
   let oldFiber = wipFiber.alternate?.child;
   let prevSibling: Fiber | null = null;
 
-  // Create map of existing fibers by key
+  // 1. Map existing fibers by key for O(1) lookup
   const existingFibers = new Map<string | number | null, Fiber>();
-  while (oldFiber) {
-    const key = oldFiber.key ?? index;
-    existingFibers.set(key, oldFiber);
-    oldFiber = oldFiber.sibling;
-    index++;
+  let tempOld = oldFiber;
+  let i = 0;
+  while (tempOld) {
+    const key = tempOld.key ?? i;
+    existingFibers.set(key, tempOld);
+    tempOld = tempOld.sibling;
+    i++;
   }
 
-  index = 0;
-  for (; index < elements.length; index++) {
+  // 2. Iterate through new elements
+  for (index = 0; index < elements.length; index++) {
     const element = elements[index];
     const key = element?.key ?? index;
-    const oldFiber = existingFibers.get(key);
+    const matchedOldFiber = existingFibers.get(key);
 
-    const sameType = oldFiber && element && element.type === oldFiber.type;
+    const sameType = matchedOldFiber && element && element.type === matchedOldFiber.type;
+
     let newFiber: Fiber | null = null;
 
     if (sameType) {
-      // Reuse the fiber
       newFiber = {
-        type: oldFiber.type,
+        type: matchedOldFiber!.type,
         props: element.props,
-        dom: oldFiber.dom,
+        dom: matchedOldFiber!.dom,
         parent: wipFiber,
-        alternate: oldFiber,
+        alternate: matchedOldFiber!,
         effectTag: "UPDATE",
-        hooks: oldFiber.hooks,
-        key
+        key: key,
       };
       existingFibers.delete(key);
     } else if (element) {
-      // Create new fiber
       newFiber = {
         type: element.type,
         props: element.props,
-        dom: null,
+        dom: undefined,
         parent: wipFiber,
-        alternate: null,
+        alternate: undefined,
         effectTag: "PLACEMENT",
-        key
+        key: key,
       };
     }
 
-    if (oldFiber && !sameType) {
-      oldFiber.effectTag = "DELETION";
-      deletions.push(oldFiber);
-    }
-
     if (index === 0) {
-      wipFiber.child = newFiber;
-    } else if (prevSibling && newFiber) {
-      prevSibling.sibling = newFiber;
+      wipFiber.child = newFiber!;
+    } else if (element) {
+      prevSibling!.sibling = newFiber!;
     }
 
     if (newFiber) {
@@ -1146,10 +1229,10 @@ function reconcileChildren(wipFiber: Fiber, elements: VNode[]) {
     }
   }
 
-  // Mark remaining old fibers for deletion
+  // 3. Any fibers remaining in the map were not matched and must be deleted
   existingFibers.forEach(fiber => {
     fiber.effectTag = "DELETION";
-    deletions.push(fiber);
+    deletions!.push(fiber);
   });
 }
 
@@ -1214,26 +1297,34 @@ export function useState<T>(initial: T | (() => T)): [T, (action: T | ((prevStat
     hook = {
       state: typeof initial === "function" ? (initial as () => T)() : initial,
       queue: [],
-      _needsUpdate: false
     };
     wipFiber.hooks[hookIndex] = hook;
   }
 
   const setState = (action: T | ((prevState: T) => T)) => {
-    // Calculate new state based on current state 
     const newState = typeof action === "function"
       ? (action as (prevState: T) => T)(hook.state)
       : action;
 
     hook.state = newState;
 
-    // Reset work-in-progress root to trigger re-r 
-
-    deletions = [];
-    nextUnitOfWork = wipRoot;
-
-    // Start the render process
-    requestAnimationFrame(workLoop);
+    // Schedule a re-render
+    if (currentRoot) {
+      wipRoot = {
+        dom: currentRoot.dom,
+        props: currentRoot.props,
+        alternate: currentRoot,
+      };
+      deletions = [];
+      nextUnitOfWork = wipRoot;
+      
+      if (typeof scheduleRender === 'function') {
+        scheduleRender();
+      } else {
+        // Fallback
+        requestAnimationFrame(workLoop);
+      }
+    }
   };
 
   hookIndex++;
@@ -1290,9 +1381,9 @@ export function Switch({ children }: { children?: VNode | VNode[] }): VNode | nu
   if (match) return match;
   return childrenArray.find(child => child && child.props?.default) || null;
 }
- 
- 
- 
+
+
+
 
 
 /**
@@ -1326,14 +1417,11 @@ export function Show({ when, children }: { when: boolean; children?: VNode | VNo
  * @param duration 
  */
 export function showToast(message: string, duration = 3000) {
-  if (typeof window !== "undefined" && (window as any).Android?.showToast) {
-    console.log("[Vader] Android Toast");
+  if (typeof window !== "undefined" && (window as any).Android?.showToast) { 
     (window as any).Android.showToast(message);
     return;
   }
-
-  // Web fallback
-  console.log("[Toast]", message);
+ 
 
   const toast = document.createElement("div");
   toast.textContent = message;
@@ -1451,8 +1539,7 @@ const pendingRequests = new Map<string, (data: any) => void>();
 
 // Listen for responses from Windows C#
 if (typeof window !== "undefined" && window.chrome?.webview) {
-  window.chrome.webview.addEventListener('message', (event: any) => {
-    console.log("Received from C#:", event.data);
+  window.chrome.webview.addEventListener('message', (event: any) => { 
     const { id, data, error } = event.data;
 
     if (pendingRequests.has(id)) {
@@ -1479,9 +1566,7 @@ function callWindows(command: string, args: any): Promise<any> {
       id,
       command,
       ...args
-    };
-
-    console.log("Sending to C#:", message);
+    }; 
     window.chrome.webview.postMessage(message);
   });
 }
@@ -1518,10 +1603,10 @@ export const FS: FS = {
       if (currentPlatform === "android" && window.Android) {
         const result = window.Android.writeFile(path, content);
         return result === true || result === 'true';
-      }else {
-          // write to localStorage as fallback
-          localStorage.setItem(path, content);
-          return true;
+      } else {
+        // write to localStorage as fallback
+        localStorage.setItem(path, content);
+        return true;
       }
     } catch (error) {
       console.error('FS.writeFile error:', error);
@@ -1544,24 +1629,24 @@ export const FS: FS = {
       }
 
       if (currentPlatform === "android" && window.Android) {
-      const result = window.Android.readFile(path);
-      
-      if (typeof result === 'string') {
-        try {
-          const parsed = JSON.parse(result);
-          // If the native side returned an error object, treat it as a failure
-          if (parsed && parsed.error) {
-            throw new Error(parsed.error); 
+        const result = window.Android.readFile(path);
+
+        if (typeof result === 'string') {
+          try {
+            const parsed = JSON.parse(result);
+            // If the native side returned an error object, treat it as a failure
+            if (parsed && parsed.error) {
+              throw new Error(parsed.error);
+            }
+          } catch (e: any) {
+            // If it's the Error we just threw, rethrow it to the caller
+            if (e.message === "File not found") throw e;
+            // Otherwise, it was just normal file content that wasn't JSON, 
+            // which is fine, so we let it fall through to return result.
           }
-        } catch (e: any) {
-          // If it's the Error we just threw, rethrow it to the caller
-          if (e.message === "File not found") throw e;
-          // Otherwise, it was just normal file content that wasn't JSON, 
-          // which is fine, so we let it fall through to return result.
         }
+        return result || '';
       }
-      return result || '';
-    }
     } catch (error) {
       throw error;
     }
@@ -1585,8 +1670,8 @@ export const FS: FS = {
           return result === true || result === 'true';
         }
         return await this.writeFile(path, '');
-      }else{
-          localStorage.removeItem(path);
+      } else {
+        localStorage.removeItem(path);
       }
     } catch (error) {
       console.error('FS.deleteFile error:', error);
@@ -1617,9 +1702,9 @@ export const FS: FS = {
             return result ? [result] : [];
           }
         }
-      }else{
-         const keys = Object.keys(localStorage);
-         return keys;
+      } else {
+        const keys = Object.keys(localStorage);
+        return keys;
       }
     } catch (error) {
       console.error('FS.listDir error:', error);
@@ -1641,7 +1726,7 @@ let dialogResolver: ((value: boolean) => void) | null = null;
  * Use dialog hook for showing alert and confirm dialogs.
  * @returns  {object} An object with alert and confirm methods.
  */
-export function useDialog( ) {
+export function useDialog() {
   // ---- ANDROID IMPLEMENTATION ----
   if (typeof window !== "undefined" && (window as any).Android?.showDialog) {
     return {
@@ -1711,7 +1796,7 @@ export function useDialog( ) {
  * @param {T} initial - The initial reference value.
  * @returns {{current: T}} A mutable ref object.
  */
-export function useRef<T>(initial: T): { current: T } {
+ export function useRef<T>(initial: T): { current: T } {
   if (!wipFiber) {
     throw new Error("Hooks can only be called inside a Vader.js function component.");
   }
@@ -1723,10 +1808,12 @@ export function useRef<T>(initial: T): { current: T } {
   }
 
   hookIndex++;
-  //@ts-ignore
-  return hook;
+  return hook as { current: T };
 }
 
+ 
+
+ 
 /**
  * A React-like useLayoutEffect hook that runs synchronously after DOM mutations.
  * @param {Function} callback - The effect callback.
@@ -1762,7 +1849,7 @@ export function useLayoutEffect(callback: Function, deps?: any[]): void {
   hook.deps = deps;
   hookIndex++;
 }
- if (platform() === "windows") {
+if (platform() === "windows") {
   const block = (method: string) => {
     return function () {
       throw new Error(
@@ -2044,16 +2131,84 @@ export function useQuery<T>(
   return { data, loading, error, refetch: fetchData };
 }
 
-export  function For<T>({
-  each,
-  children,
-}: {
-  each: T[];
-  children: (item: T, index: number) => VNode;
-}): VNode[] {
-  return each.map((item, index) => children(item, index));
-}
+type ForChildren<T> =
+  | ((item: T, index: number) => VNode | VNode[] | null)
+  | VNode
+  | VNode[]
+  | null;
 
+type RenderFn<T> = (item: T, index: number) => VNode | VNode[] | null;
+
+
+export function For<T>(props: {
+  each?: readonly T[] | null;
+  children?: RenderFn<T> | RenderFn<T>[];
+}): VNode | null {
+  const list = props.each;
+  if (!list || list.length === 0) return null;
+
+  // Extract the render function from children
+  // In JSX, children is passed as a prop, not as arguments to createElement
+  let renderFn: RenderFn<T> | null = null;
+
+  if (props.children) {
+    if (Array.isArray(props.children)) {
+      // Find the first function in children array
+      for (const child of props.children) {
+        if (typeof child === "function") {
+          renderFn = child as RenderFn<T>;
+          break;
+        }
+      }
+    } else if (typeof props.children === "function") {
+      renderFn = props.children;
+    }
+  }
+
+  if (!renderFn) {
+    console.warn("For component requires a function as children");
+    return null;
+  }
+
+  // Execute the render function for each item
+  const renderedItems: (VNode | VNode[] | null)[] = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    try {
+      const result = renderFn(item, i);
+      if (result !== null && result !== undefined) {
+        renderedItems.push(result);
+      }
+    } catch (error) {
+      console.error("Error rendering item in For loop:", error);
+    }
+  }
+
+  // Flatten the results (renderFn might return arrays)
+  const flatItems: VNode[] = [];
+  for (const item of renderedItems) {
+    if (Array.isArray(item)) {
+      for (const subItem of item) {
+        if (subItem !== null && subItem !== undefined) {
+          flatItems.push(subItem);
+        }
+      }
+    } else if (item !== null && item !== undefined) {
+      flatItems.push(item);
+    }
+  }
+
+  if (flatItems.length === 0) return null;
+
+  // Return a fragment containing all rendered items
+  return {
+    type: "fragment",
+    props: {
+      children: flatItems
+    }
+  } as VNode;
+}
 /**
  * A hook for tracking window focus state.
  * @returns {boolean} True if the window is focused.
@@ -2189,7 +2344,7 @@ export function platform(): "windows" | "android" | "web" {
  * @param {(props: P) => VNode} renderFn - The component render function
  * @returns {(props: P) => VNode} A memoized component function
  */
-export function component<P extends object>( renderFn: (props: P) => VNode): (props: P) => VNode {
+export function component<P extends object>(renderFn: (props: P) => VNode): (props: P) => VNode {
   // Create a wrapper function that will be the actual component
   const ComponentWrapper = (props: P): VNode => {
     // Check if props have changed
@@ -2197,18 +2352,18 @@ export function component<P extends object>( renderFn: (props: P) => VNode): (pr
     while (fiber && fiber.type !== ComponentWrapper) {
       fiber = fiber.alternate;
     }
-    
+
     const prevProps = fiber?.alternate?.props || {};
     const nextProps = props;
-    
+
     // Create a simple props comparison
     // For now, we'll do a shallow comparison of props
     let shouldUpdate = false;
-    
+
     // Check if props count changed
     const prevKeys = Object.keys(prevProps);
     const nextKeys = Object.keys(nextProps);
-    
+
     if (prevKeys.length !== nextKeys.length) {
       shouldUpdate = true;
     } else {
@@ -2220,7 +2375,7 @@ export function component<P extends object>( renderFn: (props: P) => VNode): (pr
         }
       }
     }
-    
+
     // Mark fiber for memoization
     const currentFiber = wipFiber;
     if (currentFiber) {
@@ -2228,31 +2383,31 @@ export function component<P extends object>( renderFn: (props: P) => VNode): (pr
       currentFiber.__compareProps = (prev: P, next: P) => {
         const prevKeys = Object.keys(prev);
         const nextKeys = Object.keys(next);
-        
+
         if (prevKeys.length !== nextKeys.length) return false;
-        
+
         for (const key of nextKeys) {
           if (next[key] !== prev[key]) return false;
         }
-        
+
         return true;
       };
-      
+
       currentFiber.__skipMemo = !shouldUpdate;
     }
-    
+
     // If props haven't changed, return the previous fiber's children
     if (!shouldUpdate && fiber?.alternate?.child) {
       return fiber.alternate.child.props.children[0];
     }
-    
+
     // Otherwise render with new props
     return renderFn(props);
   };
-  
+
   // Set display name for debugging
   (ComponentWrapper as any).displayName = name;
-  
+
   return ComponentWrapper;
 }
 export function Fragment({ children }: { children: VNode | VNode[] }): VNode | null {
@@ -2303,4 +2458,3 @@ Object.defineProperty(window, "Vader", {
   configurable: false,
 });
 
- 
