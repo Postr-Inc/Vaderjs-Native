@@ -507,31 +507,7 @@ async function preprocessSources(srcDir: string, tempDir: string): Promise<void>
     }
   });
 }
-function absoluteAssetPlugin() {
-  return {
-    name: "absolute-asset-plugin",
-    setup(build) {
-      build.onLoad(
-        { filter: /\.(js|jsx|ts|tsx)$/ },
-        async (args) => {
-          let code = await Bun.file(args.path).text();
-
-          // Replace "./asset.ext" → "/asset.ext"
-          code = code.replace(
-            /(["'`])\.\/([^"'`]+\.(png|jpe?g|svg|webp|gif|avif))\1/g,
-            (_, quote, asset) => `${quote}/${asset}${quote}`
-          );
-
-          return {
-            contents: code,
-            loader: args.path.endsWith("x") ? "tsx" : "js",
-          };
-        }
-      );
-    },
-  };
-}
-
+ 
 /**
  * Step 4: Build the application's source code from the preprocessed temp directory
  */
@@ -666,7 +642,7 @@ async function buildSPAHtml(): Promise<void> {
 </head>
 <body>
   <div id="app"></div>
-  <script src="/App.js " type="module"></script>
+  <script src="/index.js " type="module"></script>
   ${isDev ? devClientScript : ""}
 </body>
 </html>`;
