@@ -188,7 +188,7 @@ function Main() {
 
       <p>Zero plugin runtime.</p>
 
-      <button onClick={() =>  setCount(count + 1)}>
+      <button onClick={() => setCount(count + 1)}>
         Count: {count}
       </button>
     </div>
@@ -253,8 +253,8 @@ function App() {
   const Component = route.route.component;
   return <Component />;
 }
- 
 Vader.render(Vader.createElement(App), document.getElementById("app"));
+export default App;
 `;
 
   await fs.writeFile(path.join(projectDir, "App.tsx"), appWrapper);
