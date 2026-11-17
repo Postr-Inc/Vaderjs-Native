@@ -120,7 +120,7 @@ async function patchMainActivity(buildDir: string, APP_ID: string, isDev: boolea
 
   const baseUrl = isDev
     ? `"http://${getLocalIP()}:${config.port || 3000}/"`
-    : `"file:///android_asset/${APP_ID}/"`;
+    : `"file:///android_asset/${APP_ID}/index.html"`;
 
   content = content.replace(/private\s+val\s+baseUrl\s*=\s*"[^"]*"/, `private val baseUrl = ${baseUrl}`);
   content = content.replace(/\{\{BASE_URL\}\}/g, baseUrl);

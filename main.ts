@@ -14,6 +14,7 @@ import { buildAndroid } from "./cli/android/build";
 import { buildWindows } from "./cli/windows/build";
 import openWinApp from "./cli/windows/dev";
 import { Config } from "./config";
+import linuxBuild from "./cli/linux/build";
 
 // --- CONSTANTS ---
 const PROJECT_ROOT = process.cwd();
@@ -507,31 +508,7 @@ async function preprocessSources(srcDir: string, tempDir: string): Promise<void>
     }
   });
 }
-function absoluteAssetPlugin() {
-  return {
-    name: "absolute-asset-plugin",
-    setup(build) {
-      build.onLoad(
-        { filter: /\.(js|jsx|ts|tsx)$/ },
-        async (args) => {
-          let code = await Bun.file(args.path).text();
-
-          // Replace "./asset.ext" → "/asset.ext"
-          code = code.replace(
-            /(["'`])\.\/([^"'`]+\.(png|jpe?g|svg|webp|gif|avif))\1/g,
-            (_, quote, asset) => `${quote}/${asset}${quote}`
-          );
-
-          return {
-            contents: code,
-            loader: args.path.endsWith("x") ? "tsx" : "js",
-          };
-        }
-      );
-    },
-  };
-}
-
+ 
 /**
  * Step 4: Build the application's source code from the preprocessed temp directory
  */
@@ -666,7 +643,7 @@ async function buildSPAHtml(): Promise<void> {
 </head>
 <body>
   <div id="app"></div>
-  <script src="/App.js " type="module"></script>
+  <script src="/index.js " type="module"></script>
   ${isDev ? devClientScript : ""}
 </body>
 </html>`;
@@ -950,6 +927,15 @@ async function main(): Promise<void> {
       await buildAll(false);
       await buildWindows(false);
       logger.success("Windows build completed 🚀");
+    },
+    'linux:dev': async () => {
+      await buildAll(true);
+      await runDevServer("web");
+    },
+    'linux:build': async () => {
+      await buildAll(false);
+      await linuxBuild()
+      logger.success("Linux build completed 🚀");
     },
     'build': async () => {
       await buildAll(false);
