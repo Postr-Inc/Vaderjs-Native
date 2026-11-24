@@ -55,5 +55,7 @@ export default async function openWinApp(isDebug = true) {
   proc.on("exit", (code) => {
     clearInterval(watchLogs);
     console.log(`\n=== App exited (${code}) ===`);
+    // close main process after app exits
+    process.exit(code || 0);
   });
 }

@@ -69,15 +69,22 @@ export type PlatformsConfig = {
   ios?: Record<string, any>;
   windows?: WindowsConfig;
   macos?: Record<string, any>;
+  linux?: LinuxConfig;
 };
 
+export type LinuxConfig = {
+  buildProfile?: "Debug" | "Release";
+  pkgConfigPackages?: string[];
+};
 /* -------------------------------------------------
    Main VaderJS Config
 ------------------------------------------------- */
 
 export type Config = {
   /** Dev server */
-  port: number;
+  server:{
+    port?: number;
+  }
   host?: string;
 
   /** Plugin system */

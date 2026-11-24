@@ -13,7 +13,29 @@ window.nativeHttpResponse = (response) => {
     delete window.nativeHttpCallbacks[response.id]; // Only delete the specific ID
   }
 };
+// requestIdleCallback compatibility
+if (!window.requestIdleCallback) {
+    window.requestIdleCallback = function (callback, options = {}) {
+        const timeout = options.timeout || 50;
 
+        return setTimeout(() => {
+            const start = Date.now();
+
+            callback({
+                didTimeout: false,
+                timeRemaining: function () {
+                    return Math.max(0, 50 - (Date.now() - start));
+                }
+            });
+        }, 1);
+    };
+}
+
+if (!window.cancelIdleCallback) {
+    window.cancelIdleCallback = function (id) {
+        clearTimeout(id);
+    };
+}
 // Add these near the top of your file (after imports)
 let isDev = false;
 let globalErrorHandler: ((error: Error, componentStack?: string) => void) | null = null;
@@ -953,7 +975,13 @@ var framesProcessed = 0;
     
     // Continue with requestIdleCallback
     if (nextUnitOfWork || wipRoot) { 
-      requestIdleCallback(workLoop, { timeout: 100 });
+      if('requestIdleCallback' in window) {
+        requestIdleCallback(workLoop, { timeout: 100 });
+      } else {
+        requestAnimationFrame(() => {
+          workLoop();
+        }); 
+      }
     }
   });
 }

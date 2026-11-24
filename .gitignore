@@ -1,2 +1,4 @@
 node_modules/**
 car/**
+test/**
+bun.lock

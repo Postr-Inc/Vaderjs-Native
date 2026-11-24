@@ -1,8 +1,8 @@
 import path from "path";
 import fsSync from "fs";
 import { serve, FileSystemRouter, glob } from "bun";
-import { logger } from "vaderjs-native/cli/logger.js";
-import { buildAll } from "vaderjs-native/main.js";
+import { logger } from "../logger";
+import { buildAll } from "../../main";
 
 const PROJECT_ROOT = path.join(process.cwd());
 const DIST_DIR = path.join(PROJECT_ROOT, "dist");

@@ -6,15 +6,14 @@ import fsSync from "fs";
 import path from "path";
 import { initProject  } from "./cli";
 import { logger, timedStep } from "./cli/logger";
-import { colors } from "./cli/logger";
-import runDevServer from "vaderjs-native/cli/web/server";
-import { runProdServer } from "vaderjs-native/cli/web/server";
+import { colors } from "./cli/logger"; 
 import { androidDev } from "./cli/android/dev.js";
 import { buildAndroid } from "./cli/android/build";
 import { buildWindows } from "./cli/windows/build";
 import openWinApp from "./cli/windows/dev";
 import { Config } from "./config";
 import linuxBuild from "./cli/linux/build";
+import runDevServer, { runProdServer } from "./cli/web/server";
 
 // --- CONSTANTS ---
 const PROJECT_ROOT = process.cwd();
@@ -643,7 +642,7 @@ async function buildSPAHtml(): Promise<void> {
 </head>
 <body>
   <div id="app"></div>
-  <script src="/index.js " type="module"></script>
+  <script src="./index.js " type="module"></script>
   ${isDev ? devClientScript : ""}
 </body>
 </html>`;
@@ -930,11 +929,13 @@ async function main(): Promise<void> {
     },
     'linux:dev': async () => {
       await buildAll(true);
+      await linuxBuild(true);
       await runDevServer("web");
+      await runProdServer();
     },
     'linux:build': async () => {
       await buildAll(false);
-      await linuxBuild()
+      await linuxBuild(isDev);
       logger.success("Linux build completed 🚀");
     },
     'build': async () => {
