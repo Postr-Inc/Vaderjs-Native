@@ -893,7 +893,7 @@ export const secureStore = (() => {
  * Commits the entire work-in-progress tree to the DOM.
  */
 function commitRoot(): void {
-  deletions.forEach(commitWork);
+  deletions.forEach(commitDeletion);
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
   wipRoot = null;
@@ -944,8 +944,14 @@ function commitDeletion(fiber: Fiber | null): void {
     if (fiber.dom.parentNode) {
       fiber.dom.parentNode.removeChild(fiber.dom);
     }
-  } else if (fiber.child) {
-    commitDeletion(fiber.child);
+    return;
+  }
+
+  let child = fiber.child;
+  while (child) {
+    const sibling = child.sibling;
+    commitDeletion(child);
+    child = sibling;
   }
 }
 
@@ -2359,6 +2365,25 @@ export function useOnClickOutside(ref: { current: HTMLElement | null }, handler:
       document.removeEventListener("mousedown", listener);
     };
   }, [ref, handler]);
+}
+
+export function update(): void {
+  console.log("[Vader.js] update() called");
+  if (!currentRoot) return;
+
+  if (!wipRoot) {
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    deletions = [];
+    nextUnitOfWork = wipRoot;
+  }
+
+  console.log("[Vader.js] update() called, scheduling render...");
+
+  scheduleRender();
 }
 
 export function platform(): "windows" | "android" | "web" {

@@ -126,6 +126,8 @@ class Router {
     this.currentMatch = match;
 
     this.listeners.forEach(l => l(this.currentMatch));
+    // if location changes dom update
+    Vader.update();
   }
 
   private getCurrentPath(): string {
@@ -153,6 +155,7 @@ class Router {
       window.location.hash = full;
     }
     this.handleLocationChange()
+    Vader.update();
   }
 
   /* ----------------------- SUBSCRIPTIONS ----------------------- */
