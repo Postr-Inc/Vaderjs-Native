@@ -621,6 +621,7 @@ const devClientScript = `
  // reload on changes
  // 
  const ws = new WebSocket('ws://' + location.host + '/__hmr');
+ window.VADER_DEV_MODE = true;
  ws.onmessage = (event) => {
    const msg = event.data;
    if (msg === 'reload') {

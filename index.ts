@@ -13,6 +13,16 @@ window.nativeHttpResponse = (response) => {
     delete window.nativeHttpCallbacks[response.id]; // Only delete the specific ID
   }
 };
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elementName: string]: any;
+    }
+  }
+}
+
+
 // requestIdleCallback compatibility
 if (!window.requestIdleCallback) {
     window.requestIdleCallback = function (callback, options = {}) {
